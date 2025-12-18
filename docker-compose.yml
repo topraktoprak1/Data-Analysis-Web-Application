@@ -32,6 +32,24 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./instance:/app/instance
+  
+  frontend:
+    image: node:20-alpine
+    container_name: veri-analizi-frontend
+    working_dir: /app
+    environment:
+      - VITE_API_URL=http://web:5000
+      - DOCKER_ENV=true
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && node ./scripts/sync-data.cjs || true && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - web
+
+
 
 volumes:
   postgres_data:

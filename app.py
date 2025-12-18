@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
@@ -15,6 +16,12 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from functools import wraps
 
 app = Flask(__name__)
+
+# Enable CORS for React frontend (include Vite dev server origins)
+CORS(app, supports_credentials=True, origins=[
+    'http://localhost:3000', 'http://127.0.0.1:3000',
+    'http://localhost:5173', 'http://127.0.0.1:5173'
+])
 
 # Security configuration
 import secrets
@@ -112,6 +119,9 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
+            # For API endpoints, return JSON error instead of redirect
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Unauthorized'}), 401
             return redirect(url_for('login_page'))
         return f(*args, **kwargs)
     return decorated_function

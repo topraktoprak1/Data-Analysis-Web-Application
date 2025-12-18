@@ -46,3 +46,21 @@ uploads/
 # OS
 .DS_Store
 Thumbs.db
+
+# Frontend / Node
+frontend/node_modules/
+frontend/dist/
+dist/
+node_modules/
+
+# Build outputs
+*.egg-info/
+build/
+
+# Env files
+.env.local
+.env.*.local
+
+# Ignore backup design files
+*.bsdesign
+
