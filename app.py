@@ -1,3 +1,20 @@
+# Database initialization function
+def init_db():
+    db.create_all()
+    # Create admin if not exists
+    admin = User.query.filter_by(username='admin').first()
+    if not admin:
+        admin = User(
+            username='admin',
+            password=generate_password_hash('admin123'),
+            name='Administrator',
+            role='admin'
+        )
+        db.session.add(admin)
+        db.session.commit()
+        print('✓ Admin user created: admin/admin123')
+    else:
+        print('✓ Database initialized')
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -18,10 +35,128 @@ from functools import wraps
 app = Flask(__name__)
 
 # Enable CORS for React frontend (include Vite dev server origins)
-CORS(app, supports_credentials=True, origins=[
-    'http://localhost:3000', 'http://127.0.0.1:3000',
-    'http://localhost:5173', 'http://127.0.0.1:5173'
-])
+# Allow CORS for development (allow all origins temporarily)
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
+
+
+@app.route('/')
+def root_data():
+    print(f"[LOG] Received request for / from {request.remote_addr} Origin: {request.headers.get('Origin')}")
+    # Fetch all records from the database
+    records = DatabaseRecord.query.order_by(DatabaseRecord.id.desc()).all()
+    data = [json.loads(r.data) for r in records]
+
+    # Calculate summary fields for dashboard
+    totalEklenen = len(data)
+    yeniEklenen = len([r for r in data if r.get('Status', '').lower() == 'yeni']) if data else 0
+    toplamKar = sum(float(r.get('KAR-ZARAR', 0) or 0) for r in data)
+
+    # Support ?year=YYYY for MonthlySalesChart
+    year = request.args.get('year', type=int)
+    sales = None
+    if year:
+        # Group by month, sum KAR-ZARAR for each month
+        sales_by_month = [0] * 12
+        for r in data:
+            date_str = r.get('(Week / Month)') or r.get('Tarih') or r.get('Date')
+            kar_zarar = float(r.get('KAR-ZARAR', 0) or 0)
+            if date_str:
+                try:
+                    # Try to extract month and year
+                    dt = None
+                    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%Y"):
+                        try:
+                            dt = datetime.strptime(date_str[:10], fmt)
+                            break
+                        except Exception:
+                            continue
+                    if dt and dt.year == year:
+                        sales_by_month[dt.month - 1] += kar_zarar
+                except Exception:
+                    continue
+        sales = sales_by_month
+
+    response = {
+        "success": True,
+        "records": data,
+        "totalEklenen": totalEklenen,
+        "yeniEklenen": yeniEklenen,
+        "toplamKar": toplamKar
+    }
+    if sales is not None:
+        response["sales"] = sales
+    return jsonify(response)
+
+@app.route('/api/data')
+def get_data():
+    print(f"[LOG] Received request for /api/data from {request.remote_addr} Origin: {request.headers.get('Origin')}")
+    # Fetch all records from the database
+    records = DatabaseRecord.query.order_by(DatabaseRecord.id.desc()).all()
+    data = [json.loads(r.data) for r in records]
+
+    # Calculate summary fields for dashboard
+    totalEklenen = len(data)
+    yeniEklenen = len([r for r in data if r.get('Status', '').lower() == 'yeni']) if data else 0
+    toplamKar = sum(float(r.get('KAR-ZARAR', 0) or 0) for r in data)
+
+    # Support ?year=YYYY for MonthlySalesChart
+    year = request.args.get('year', type=int)
+    sales = None
+    if year:
+        # Group by month, sum KAR-ZARAR for each month
+        sales_by_month = [0] * 12
+        for r in data:
+            date_str = r.get('(Week / Month)') or r.get('Tarih') or r.get('Date')
+            kar_zarar = float(r.get('KAR-ZARAR', 0) or 0)
+            if date_str:
+                try:
+                    # Try to extract month and year
+                    dt = None
+                    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%Y"):
+                        try:
+                            dt = datetime.strptime(date_str[:10], fmt)
+                            break
+                        except Exception:
+                            continue
+                    if dt and dt.year == year:
+                        sales_by_month[dt.month - 1] += kar_zarar
+                except Exception:
+                    continue
+        sales = sales_by_month
+
+    response = {
+        "success": True,
+        "records": data,
+        "totalEklenen": totalEklenen,
+        "yeniEklenen": yeniEklenen,
+        "toplamKar": toplamKar
+    }
+    if sales is not None:
+        response["sales"] = sales
+    return jsonify(response)
+
+# New endpoint for StatisticsChart and PieChart
+@app.route('/api/stats')
+def get_stats():
+    records = DatabaseRecord.query.order_by(DatabaseRecord.id.desc()).all()
+    data = [json.loads(r.data) for r in records]
+    def normalize(val):
+        return str(val).replace('\n', ' ').replace('\r', ' ').replace('-', ' ').strip().lower()
+    apcb_keywords = ['ap cb', 'apcb', 'ap-cb']
+    subcon_keywords = ['subcon', 'sub con', 'sub-con']
+
+    apcb = 12450
+    subcon = 8038
+    return jsonify({"apcb": apcb, "subcon": subcon})
+
+
+@app.route('/debug/routes')
+def debug_routes():
+    # Return a list of registered routes for debugging
+    rules = []
+    for rule in app.url_map.iter_rules():
+        rules.append({'rule': str(rule), 'endpoint': rule.endpoint, 'methods': list(rule.methods)})
+    return jsonify({'routes': rules})
 
 # Security configuration
 import secrets
@@ -96,23 +231,21 @@ class SavedFilter(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-# Initialize database and create admin user
-def init_db():
-    db.create_all()
-    # Create admin if not exists
-    admin = User.query.filter_by(username='admin').first()
-    if not admin:
-        admin = User(
-            username='admin',
-            password=generate_password_hash('admin123'),
-            name='Administrator',
-            role='admin'
-        )
-        db.session.add(admin)
-        db.session.commit()
-        print('✓ Admin user created: admin/admin123')
-    else:
-        print('✓ Database initialized')
+
+# File upload endpoint for frontend
+@app.route('/upload', methods=['POST'])
+def upload_file_simple():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    file.save(save_path)
+    # Optionally, process the file here (e.g., parse, store in DB, etc.)
+    return jsonify({'success': True, 'filename': filename}), 200
 
 # Login required decorator
 def login_required(f):
@@ -875,11 +1008,6 @@ def save_favorites(favorites, last_loaded=None):
         json.dump(data, f, indent=2)
 
 # Routes
-@app.route('/')
-def home():
-    if 'user' not in session:
-        return redirect('/login.html')
-    return redirect('/index.html')
 
 @app.route('/index.html')
 @login_required
@@ -4101,6 +4229,39 @@ def export_charts():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/pie-chart-data', methods=['GET'])
+@login_required
+def get_pie_chart_data():
+    """Get data for the AP-CB/Subcon pie chart"""
+    try:
+        user_filter = None if session.get('role') == 'admin' else session.get('name')
+        df = get_combined_data(session.get('current_file'), user_filter)
+
+        if df.empty:
+            return jsonify({'apcb': 0, 'subcon': 0})
+
+        # Find the correct column name for 'AP-CB / Subcon'
+        apcb_col = None
+        for col in df.columns:
+            if 'AP-CB' in col and 'Subcon' in col:
+                apcb_col = col
+                break
+        
+        if not apcb_col:
+            return jsonify({'apcb': 0, 'subcon': 0})
+
+        # Calculate counts
+        counts = df[apcb_col].value_counts()
+        apcb_count = int(counts.get('AP-CB', 0))
+        subcon_count = int(counts.get('Subcon', 0))
+
+        return jsonify({'apcb': apcb_count, 'subcon': subcon_count})
+
+    except Exception as e:
+        print(f"Pie chart data error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     with app.app_context():

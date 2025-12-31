@@ -1,0 +1,253 @@
+/* FORCE pivot table to be visible on dark UI */
+
+/* Base (neutral) styles - allow theme to control exact colors */
+#pivot-table-output {
+  background: transparent;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.pvtTable {
+  color: inherit !important;
+  background: transparent !important;
+}
+
+.pvtAxisContainer,
+.pvtVals {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+.pvtRendererArea {
+  background: transparent !important;
+}
+
+/* Dark mode overrides (supports .dark root class and prefers-color-scheme) */
+@media (prefers-color-scheme: dark) {
+  #pivot-table-output {
+    background: #0b1220;
+    color: #e6eef8;
+    padding: 16px;
+    border-radius: 8px;
+  }
+
+  .pvtTable {
+    color: #e6eef8 !important;
+    background: transparent !important;
+  }
+
+  .pvtAxisContainer,
+  .pvtVals {
+    background: #071021 !important;
+    color: #d7e6f7 !important;
+  }
+
+  .pvtRendererArea {
+    background: transparent !important;
+  }
+
+  .pivot-table-controls-modern,
+  .pivot-table-card {
+    background: transparent;
+  }
+
+  .pivot-table-row {
+    /* keep grid layout but ensure labels readable */
+  }
+
+  .pivot-label {
+    color: #c7d2e0;
+  }
+
+  .pivot-select {
+    background: #071421 !important;
+    color: #e6eef8 !important;
+    border: 1px solid #21303e !important;
+  }
+
+  /* make the placeholder area look like a dark card */
+  .pivot-table-placeholder,
+  #pivot-table-output .pvtRendererArea {
+    background: rgba(255,255,255,0.03) !important;
+  }
+}
+
+/* Also support a root .dark class (some apps toggle this) */
+.dark #pivot-table-output {
+  background: #0b1220;
+  color: #e6eef8;
+}
+.dark .pvtTable { color: #e6eef8 !important; background: transparent !important; }
+.dark .pvtAxisContainer, .dark .pvtVals { background: #071021 !important; color: #d7e6f7 !important; }
+.dark .pvtRendererArea { background: transparent !important; }
+.dark .pivot-label { color: #c7d2e0; }
+.dark .pivot-select { background: #071421 !important; color: #e6eef8 !important; border: 1px solid #21303e !important; }
+
+/* Light-mode explicit styles */
+@media (prefers-color-scheme: light) {
+  #pivot-table-output {
+    background: #ffffff;
+    color: #222;
+  }
+  .pvtTable {
+    color: #000 !important;
+    background: #fff !important;
+  }
+  .pvtAxisContainer,
+  .pvtVals {
+    background: #f8f9fa !important;
+    color: #000 !important;
+  }
+  .pvtRendererArea {
+    background: #fff !important;
+  }
+  .pivot-select {
+    background: #fff;
+    color: #111;
+    border: 1px solid #d0d7de;
+  }
+  .pivot-label { color: #222; }
+}
+
+/* Ensure pivot table cells are visible in dark mode */
+@media (prefers-color-scheme: dark) {
+  .pvtTable, .pvtTable th, .pvtTable td {
+    color: #e6eef8 !important;
+    background: transparent !important;
+    border-color: rgba(255,255,255,0.04) !important;
+  }
+
+  .pvtTable th {
+    background: rgba(255,255,255,0.02) !important;
+    color: #cfe6ff !important;
+    font-weight: 700;
+  }
+
+  .pvtTable td {
+    background: transparent !important;
+  }
+
+  .pvtTotalLabel, .pvtTotal, .pvtGrandTotal, .pvtVal, .pvtRowLabel, .pvtColLabel {
+    color: #e6eef8 !important;
+    background: rgba(255,255,255,0.02) !important;
+    border-color: rgba(255,255,255,0.03) !important;
+  }
+
+  /* Small totals box at left */
+  .pvtVals .pvtTotal, .pvtVals table, .pvtVals td, .pvtVals th {
+    background: transparent !important;
+    color: #e6eef8 !important;
+    border-color: rgba(255,255,255,0.04) !important;
+  }
+
+  /* Make row/col labels visible */
+  .pvtRowLabel, .pvtColLabel { color: #d7e6f7 !important; }
+}
+
+/* Also apply when app toggles a .dark root class */
+.dark .pvtTable, .dark .pvtTable th, .dark .pvtTable td {
+  color: #e6eef8 !important;
+  background: transparent !important;
+  border-color: rgba(255,255,255,0.04) !important;
+}
+.dark .pvtTable th { background: rgba(255,255,255,0.02) !important; color: #cfe6ff !important; font-weight:700; }
+.dark .pvtTotalLabel, .dark .pvtTotal, .dark .pvtGrandTotal, .dark .pvtVal, .dark .pvtRowLabel, .dark .pvtColLabel {
+  color: #e6eef8 !important;
+  background: rgba(255,255,255,0.02) !important;
+  border-color: rgba(255,255,255,0.03) !important;
+}
+
+
+/* Layout for pivot table controls: label left, control right */
+.pivot-table-controls-modern {
+  width: 100%;
+}
+.pivot-table-card {
+  display: block;
+  padding: 8px 0;
+}
+.pivot-table-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 8px 0;
+}
+.pivot-label {
+  text-align: right;
+  padding-right: 8px;
+  font-weight: 600;
+  color: #c7d2e0; /* default to light label for dark theme; light-mode will override */
+}
+.pivot-select {
+  width: 100%;
+  box-shadow: #21303e 0px 1px 2px 0px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+
+}
+
+/* Values multi-select custom styles */
+.values-multiselect { width: 320px; max-width: 100%; position: relative; }
+.vm-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; background: #f7fafc; border:1px solid #e6edf3; border-radius:6px; cursor:pointer }
+.vm-chips { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+.vm-placeholder { color:#8b949e; font-size:13px }
+.vm-chip { display:inline-flex; align-items:center; gap:8px; background:#0004f8; color:#fff; padding:4px 8px; border-radius:999px; font-size:12px }
+.vm-chip .vm-chip-remove { background:transparent; border:none; color:rgba(255,255,255,0.95); cursor:pointer; font-size:12px; padding:0 }
+.vm-caret { color:#6b7280 }
+.vm-dropdown { position:absolute; left:0; right:0; top:calc(100% + 8px); background:#fff; border:1px solid #e6edf3; border-radius:6px; box-shadow:0 8px 20px rgba(2,6,23,0.08); max-height:220px; overflow:auto; z-index:40 }
+.vm-dropdown ul { list-style:none; margin:0; padding:8px 0 }
+.vm-dropdown li { padding:8px 12px; display:flex; justify-content:space-between; align-items:center; cursor:pointer }
+.vm-dropdown li:hover { background: rgba(2,6,23,0.02) }
+.vm-dropdown li.selected { background: rgba(37,99,235,0.06); }
+.opt-check { color:#2563eb; font-weight:700 }
+
+@media (prefers-color-scheme: dark), .dark {
+  .vm-header { background: #071421; border:1px solid #21303e; color: #e6eef8 }
+  .vm-placeholder { color:#9aa6b2 }
+  .vm-chip { background:#1202ff }
+  .vm-dropdown { background:#071421; border:1px solid #21303e }
+  .vm-dropdown li:hover { background: rgba(255,255,255,0.02) }
+  .vm-dropdown li.selected { background: rgba(37,99,235,0.08) }
+}
+
+@media (max-width: 720px) {
+  .pivot-table-row {
+    grid-template-columns: 1fr;
+  }
+  .pivot-label { text-align: left; }
+}
+
+
+/* Filters removed - styles cleaned up. If you re-enable filters later, re-add styles here. */
+
+/* single-select tweak (use same width as other controls) */
+.single-select { max-width: 420px; }
+.single-select .vm-header { background: #f7fafc }
+.single-select .vm-selected-single { font-size:13px; color:#0b1220 }
+.single-select .vm-placeholder { color:#8b949e }
+
+@media (prefers-color-scheme: dark), .dark {
+  .single-select .vm-header { background: #071421 }
+  .single-select .vm-selected-single { color: #e6eef8 }
+}
+
+/* custom pivot table (simple aggregated view) */
+.custom-pivot-table-wrap { margin-top: 18px; overflow:auto }
+.custom-pivot-table { width: 100%; border-collapse: collapse; border: 1px solid rgba(255,255,255,0.06); }
+.custom-pivot-table th, .custom-pivot-table td { border: 1px solid rgba(255,255,255,0.04); padding: 8px 12px; text-align: center }
+.custom-pivot-table thead th { background: rgba(255,255,255,0.02); font-weight:700 }
+.custom-pivot-table tbody td.cp-key { text-align: left; font-weight:600 }
+.custom-pivot-table tbody td.cp-val { text-align: right }
+.custom-pivot-table tfoot td.cp-total { font-weight:700; text-align:left }
+.custom-pivot-table tfoot td.cp-total-val { text-align:right; font-weight:700 }
+
+@media (prefers-color-scheme: dark), .dark {
+  .custom-pivot-table { border-color: rgba(255,255,255,0.03) }
+  .custom-pivot-table th, .custom-pivot-table td { border-color: rgba(255,255,255,0.03); color: #e6eef8 }
+  .custom-pivot-table thead th { background: rgba(255,255,255,0.02) }
+}
