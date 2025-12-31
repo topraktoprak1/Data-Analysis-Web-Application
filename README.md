@@ -12,6 +12,14 @@ This is a Flask web application that provides Excel data analysis capabilities w
 - 💾 **Export**: Download reports in Excel or Word format
 - 📊 **Data Analysis**: Automatic calculation of KAR/ZARAR columns
 
+## 🔄 Recent Updates (2025-12-31)
+- **Branding:** Replaced TailAdmin logo with site title "Veri Analizi Uygulaması" in header and sidebar.
+- **Profiles:** Profile pages now fetch user and admin data from backend endpoints (`/api/user`, `/api/admin`) and display blanks for missing fields; avatars replaced with initials where no photo exists.
+- **Pivot Table:** Added optional `allowedRows`, `allowedCols`, and `allowedVals` to restrict selector choices and included inline search inputs in selection dropdowns.
+- **Charts:** When a single chart series is shown, a small Row/Col/Color selector UI appears; selected color is applied to the series.
+- **UI Fixes:** Improved dark-mode label contrast and fixed JSX parsing issues introduced during recent edits.
+
+
 ## 🚀 Installation
 
 ### 1. Install Python Dependencies
@@ -50,6 +58,17 @@ deneme/
         ├── app.js             # Data analysis JavaScript
         ├── theme.js           # Theme JavaScript
         └── ...                # Other JS files
+├── frontend/                 # Frontend (React + Vite + TypeScript)
+│   ├── package.json          # Frontend dependencies & scripts
+│   ├── vite.config.ts        # Vite config
+│   ├── tsconfig.json         # TypeScript config
+│   ├── index.html            # App entry HTML
+│   ├── public/               # Public assets
+│   └── src/                  # React + TypeScript source
+│       ├── main.tsx          # App entry
+│       ├── App.tsx           # Root component
+│       ├── assets/           # Static assets (css/img/js)
+│       └── components/       # UI components and pages
 ```
 
 ## 🔧 How to Use
