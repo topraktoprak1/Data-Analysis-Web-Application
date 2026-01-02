@@ -1,14 +1,20 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ChevronLeftIcon, EyeCloseIcon, EyeIcon } from "../../icons";
 import Label from "../form/Label";
 import Input from "../form/input/InputField";
 import Checkbox from "../form/input/Checkbox";
 import Button from "../ui/button/Button";
+import { useAuth } from "../../context/AuthContext";
 
 export default function SignInForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [isChecked, setIsChecked] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const auth = useAuth();
+  const navigate = useNavigate();
 
   return (
     <div className="flex flex-col flex-1">
@@ -29,17 +35,25 @@ export default function SignInForm() {
               Sign In
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Enter your email and password to sign in!
+              Enter your username and password to sign in!
             </p>
           </div>
 
-          <form>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setError(null);
+              const ok = await auth.signin(email, password);
+              if (ok) navigate("/");
+              else setError("Sign in failed. Check username.");
+            }}
+          >
             <div className="space-y-6">
               <div>
                 <Label>
-                  Email <span className="text-error-500">*</span>
+                  Username <span className="text-error-500">*</span>
                 </Label>
-                <Input placeholder="info@gmail.com" />
+                <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="Username" />
               </div>
 
               <div>
@@ -50,6 +64,8 @@ export default function SignInForm() {
                 <div className="relative">
                   <Input
                     type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
                     placeholder="Enter your password"
                   />
                   <button
@@ -81,10 +97,11 @@ export default function SignInForm() {
               </div>
 
               <div>
-                <Button className="w-full" size="sm">
+                <Button className="w-full" size="sm" type="submit">
                   Sign in
                 </Button>
               </div>
+              {error && <div className="text-sm text-red-600 mt-2">{error}</div>}
             </div>
           </form>
 

@@ -3,7 +3,7 @@ import { ApexOptions } from "apexcharts";
 import PieChart from "./PieChart";
 
 import ChartTab from "../common/ChartTab";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 type TabType = "optionOne" | "optionTwo" | "optionThree";
 
@@ -31,6 +31,7 @@ export default function StatisticsChart() {
   const [rowField, setRowField] = useState<string | null>(null);
   const [colField, setColField] = useState<string | null>(null);
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
+  const [chartType, setChartType] = useState<"line" | "bar" | "pie" | "boxPlot">("line");
 
   // Extract years from records
   function extractYears(records: any[]): number[] {
@@ -171,7 +172,7 @@ export default function StatisticsChart() {
     }
   }, [availableYears]);
 
-  const options: ApexOptions = {
+  const options: ApexOptions = useMemo(() => ({
     legend: {
       show: false,
     },
@@ -234,18 +235,19 @@ export default function StatisticsChart() {
       },
       title: { text: "Kar-Zarar (USD)", style: { fontSize: "14px", color: "#6B7280" } },
     },
-  };
+    plotOptions: {
+      bar: {
+        horizontal: false,
+        columnWidth: "55%",
+      }
+    },
+  }), []);
 
   // list of colors for UI selection (same order as options.colors)
   const colorPalette = options.colors as string[];
 
   // derive chart options with color override when single series selected
-  const chartOptions = {
-    ...options,
-    colors: (displayedSeries.length === 1 && selectedColor)
-      ? [selectedColor, ...colorPalette.filter(c => c !== selectedColor)]
-      : options.colors,
-  } as ApexOptions;
+  // (moved below `displayedSeries` definition to avoid TDZ ReferenceError)
 
   // Filtered series for search
   const filteredSeries = search.trim()
@@ -267,6 +269,66 @@ export default function StatisticsChart() {
   // Only show selected names in the chart
   const displayedSeries = filteredSeries.filter(s => selectedNames.includes(s.name));
 
+  // derive chart options with color override when single series selected
+  const chartOptions: ApexOptions = useMemo(() => ({
+    ...options,
+    chart: {
+      ...options.chart,
+      type: chartType === "boxPlot" ? "boxPlot" : chartType === "pie" ? "pie" : chartType,
+    },
+    stroke: {
+      ...options.stroke,
+      width: chartType === "line" ? 3 : 0,
+    },
+    markers: {
+      ...options.markers,
+      size: chartType === "line" ? 5 : 0,
+    },
+    dataLabels: {
+      enabled: chartType === "pie",
+    },
+    tooltip: {
+      ...options.tooltip,
+      shared: chartType !== "pie",
+    },
+    plotOptions: chartType === "bar" ? {
+      bar: {
+        horizontal: false,
+        columnWidth: "55%",
+      }
+    } : options.plotOptions,
+    colors: (displayedSeries.length === 1 && selectedColor)
+      ? [selectedColor, ...colorPalette.filter(c => c !== selectedColor)]
+      : options.colors,
+  }), [options, chartType, displayedSeries.length, selectedColor, colorPalette]);
+
+  // Prepare pie chart data (sum all months for each series)
+  const pieChartData = chartType === "pie" 
+    ? displayedSeries.map(s => ({
+        name: s.name,
+        value: s.data.reduce((acc: number, val: number) => acc + val, 0)
+      }))
+    : [];
+
+  // Prepare box plot data (convert line data to box plot format)
+  const boxPlotSeries = chartType === "boxPlot"
+    ? displayedSeries.map(s => ({
+        name: s.name,
+        type: 'boxPlot' as const,
+        data: monthNames.map((_, idx) => {
+          const values = displayedSeries.map(series => series.data[idx]).filter(v => v !== 0);
+          if (values.length === 0) return { x: monthNames[idx], y: [0, 0, 0, 0, 0] };
+          values.sort((a, b) => a - b);
+          const min = Math.min(...values);
+          const max = Math.max(...values);
+          const q1 = values[Math.floor(values.length * 0.25)];
+          const median = values[Math.floor(values.length * 0.5)];
+          const q3 = values[Math.floor(values.length * 0.75)];
+          return { x: monthNames[idx], y: [min, q1, median, q3, max] };
+        })
+      }))
+    : [];
+
   return (
     <div
       className={
@@ -284,6 +346,20 @@ export default function StatisticsChart() {
           </p>
         </div>
         <div className="flex items-start w-full gap-3 sm:justify-end">
+            {/* Chart Type Selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-700 dark:text-gray-300">Chart:</span>
+              <select
+                value={chartType}
+                onChange={(e) => setChartType(e.target.value as "line" | "bar" | "pie" | "boxPlot")}
+                className="px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-200"
+              >
+                <option value="line">Line</option>
+                <option value="bar">Bar</option>
+                <option value="pie">Pie</option>
+                <option value="boxPlot">Box Plot</option>
+              </select>
+            </div>
             <ChartTab selected={tab} setSelected={setTab} />
             {/* Single-chart controls: Row / Col / Color selection */}
             {displayedSeries.length === 1 && (
@@ -373,15 +449,26 @@ export default function StatisticsChart() {
         >
           {loading ? (
             <div className="text-base font-semibold text-gray-500 dark:text-gray-300">Loading...</div>
+          ) : chartType === "pie" ? (
+            <div style={{ width: "100%", height: fullscreen ? "90vh" : 500 }}>
+              <PieChart
+                series={pieChartData.map(d => d.value)}
+                labels={pieChartData.map(d => d.name)}
+              />
+            </div>
           ) : (
             <div style={{ width: "100%", height: fullscreen ? "90vh" : 500 }}>
-              <Chart
-                options={options}
-                series={displayedSeries}
-                type="line"
-                height={fullscreen ? "100%" : 500}
-                width={"100%"}
-              />
+              {(!displayedSeries || displayedSeries.length === 0) ? (
+                <div className="text-base font-semibold text-gray-500 dark:text-gray-300">No data to display</div>
+              ) : (
+                <Chart
+                  options={chartOptions}
+                  series={chartType === "boxPlot" ? boxPlotSeries : displayedSeries}
+                  type={chartType === "boxPlot" ? "boxPlot" : chartType}
+                  height={fullscreen ? "100%" : 500}
+                  width={"100%"}
+                />
+              )}
             </div>
           )}
         </div>

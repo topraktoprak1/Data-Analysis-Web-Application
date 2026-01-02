@@ -15,4 +15,11 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    proxy: {
+      // Proxy API requests to the Flask backend during development
+      '/api': 'http://localhost:5000',
+      '/upload': 'http://localhost:5000'
+    }
+  }
 });

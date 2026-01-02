@@ -53,16 +53,7 @@ const navItems: NavItem[] = [
   },
 ];
 
-const othersItems: NavItem[] = [
-  {
-    icon: <PlugInIcon />,
-    name: "Authentication",
-    subItems: [
-      { name: "Sign In", path: "/signin", pro: false },
-      { name: "Sign Up", path: "/signup", pro: false },
-    ],
-  },
-];
+const othersItems: NavItem[] = [];
 
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
@@ -281,7 +272,7 @@ const AppSidebar: React.FC = () => {
               <span className="font-bold text-lg text-black dark:text-white whitespace-nowrap">Veri Analizi Uygulaması</span>
             </div>
           ) : (
-            <div className="w-8 h-8 flex items-center justify-center text-black dark:text-white font-bold">VA</div>
+            <div className="w-8 h-8 flex items-center justify-center text-black font-bold">VA</div>
           )}
         </Link>
       </div>

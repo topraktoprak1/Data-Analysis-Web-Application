@@ -35,6 +35,19 @@ const DropzoneComponent: React.FC<DropzoneComponentProps> = ({ onUploadSuccess }
       "text/csv": [".csv"],
     },
   });
+  const deleteFile = async () => {
+    try {
+      const response = await fetch("http://10.135.8.47:5000/delete", {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to delete file");
+      }
+      alert("Existing data cleared successfully.");
+    } catch (error) {
+      alert("Delete failed: " + error);
+    }
+  };
   return (
     <ComponentCard title="Dropzone">
       <div className="transition border border-gray-300 border-dashed cursor-pointer dark:hover:border-brand-500 dark:border-gray-700 rounded-xl hover:border-brand-500">
@@ -81,6 +94,21 @@ const DropzoneComponent: React.FC<DropzoneComponentProps> = ({ onUploadSuccess }
               Drag and drop your XLSB or CSV files here, or click to select
               files from your computer.
             </span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              Delete existing data in the system before uploading new files.
+              <button
+                type="button"
+                className="ml-1 font-medium underline text-brand-500 hover:text-brand-600 dark:hover:text-brand-400"
+                onClick={async (e) => {
+                  e.preventDefault();
+                  if (!confirm('Are you sure you want to clear existing data? This cannot be undone.')) return;
+                  await deleteFile();
+                }}
+              >
+                Clear Data
+              </button>
+            </span>
+            <br />
 
             <span className="font-medium underline text-theme-sm text-brand-500">
               Browse File

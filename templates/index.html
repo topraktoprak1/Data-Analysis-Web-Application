@@ -124,6 +124,29 @@
                         </div>
                     </div>
                     
+                    <!-- Auto-Calculated Fields Information -->
+                    <div class="card shadow mb-4" id="autoFieldsCard" style="display: none;">
+                        <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                            <h6 class="m-0 font-weight-bold text-primary">🤖 Auto-Calculated Fields</h6>
+                            <div>
+                                <button class="btn btn-sm btn-success me-2" onclick="downloadCalculatedData()">
+                                    <i class="fas fa-download"></i> Download Excel with Calculations
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary" onclick="toggleAutoFieldsDetails()">
+                                    <i class="fas fa-info-circle"></i> Toggle Details
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <i class="fas fa-magic"></i> <strong>Note:</strong> These fields are automatically calculated when adding or updating records based on Excel formulas.
+                                <br>
+                                <small><i class="fas fa-lightbulb"></i> Click "Download Excel with Calculations" to verify the formulas are working correctly. Manual input fields are highlighted in <span class="badge bg-primary">blue</span> and auto-calculated fields in <span class="badge bg-success">green</span>.</small>
+                            </div>
+                            <div id="autoFieldsContainer" class="row"></div>
+                        </div>
+                    </div>
+                    
                     <!-- Filters Section -->
                     <div class="card shadow mb-4" id="filtersCard" style="display: none;">
                         <div class="card-header py-3 d-flex justify-content-between align-items-center">
@@ -237,6 +260,7 @@
             
             initializeFavorites();
             loadExistingData(); // Load data if exists in session
+            loadAutoCalculatedFields(); // Load auto-calculated fields info
             
             // Add search functionality
             const searchInput = document.getElementById('searchInput');
@@ -279,6 +303,156 @@
         
         // Load profile photo on page load
         loadUserProfilePhoto();
+        
+        // ========== AUTO-CALCULATED FIELDS FUNCTIONS ==========
+        
+        let autoFieldsDetailsExpanded = false;
+        
+        async function loadAutoCalculatedFields() {
+            try {
+                const response = await fetch('/api/auto-calculated-fields');
+                const data = await response.json();
+                
+                if (response.ok && data.fields) {
+                    displayAutoCalculatedFields(data);
+                    document.getElementById('autoFieldsCard').style.display = 'block';
+                } else {
+                    console.error('Failed to load auto-calculated fields:', data.error);
+                }
+            } catch (error) {
+                console.error('Error loading auto-calculated fields:', error);
+            }
+        }
+        
+        function displayAutoCalculatedFields(data) {
+            const container = document.getElementById('autoFieldsContainer');
+            container.innerHTML = '';
+            
+            // Create a summary card
+            const summaryCard = document.createElement('div');
+            summaryCard.className = 'col-12 mb-3';
+            summaryCard.innerHTML = `
+                <div class="alert alert-success">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong><i class="fas fa-robot"></i> Total Auto-Calculated Fields:</strong> ${data.total_auto_fields}
+                        </div>
+                        <div class="col-md-6">
+                            <strong><i class="fas fa-keyboard"></i> Manual Input Fields:</strong> ${data.manual_fields.length}
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(summaryCard);
+            
+            // Display manual fields
+            const manualFieldsDiv = document.createElement('div');
+            manualFieldsDiv.className = 'col-12 mb-3';
+            manualFieldsDiv.innerHTML = `
+                <div class="card border-primary">
+                    <div class="card-header bg-primary text-white">
+                        <i class="fas fa-keyboard"></i> <strong>Manual Input Fields</strong>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            ${data.manual_fields.map(field => `
+                                <div class="col-md-3 col-sm-4 col-6 mb-2">
+                                    <span class="badge bg-primary"><i class="fas fa-edit"></i> ${field}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(manualFieldsDiv);
+            
+            // Display auto-calculated fields
+            data.fields.forEach((field, index) => {
+                const fieldCard = document.createElement('div');
+                fieldCard.className = 'col-md-6 col-lg-4 mb-3';
+                fieldCard.innerHTML = `
+                    <div class="card h-100 border-success">
+                        <div class="card-body">
+                            <h6 class="card-title text-success">
+                                <i class="fas fa-${field.icon}"></i> ${field.name}
+                            </h6>
+                            <p class="card-text small">${field.description}</p>
+                            <div class="auto-field-formula" style="display: ${autoFieldsDetailsExpanded ? 'block' : 'none'};">
+                                <hr>
+                                <p class="text-muted small mb-0">
+                                    <strong>Formula:</strong><br>
+                                    <code style="font-size: 0.75rem;">${field.formula}</code>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(fieldCard);
+            });
+        }
+        
+        function toggleAutoFieldsDetails() {
+            autoFieldsDetailsExpanded = !autoFieldsDetailsExpanded;
+            const formulas = document.querySelectorAll('.auto-field-formula');
+            formulas.forEach(formula => {
+                formula.style.display = autoFieldsDetailsExpanded ? 'block' : 'none';
+            });
+        }
+        
+        async function downloadCalculatedData() {
+            try {
+                // Show loading state
+                const btn = event.target.closest('button');
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+                
+                // Trigger download
+                const response = await fetch('/api/download-calculated-data');
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to generate Excel file');
+                }
+                
+                // Get filename from response headers
+                const contentDisposition = response.headers.get('content-disposition');
+                let filename = 'calculated_data.xlsx';
+                if (contentDisposition) {
+                    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                    if (filenameMatch && filenameMatch[1]) {
+                        filename = filenameMatch[1].replace(/['"]/g, '');
+                    }
+                }
+                
+                // Download the file
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                // Show success message
+                alert('✓ Excel file with calculated fields downloaded successfully!');
+                
+                // Restore button
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Error downloading file: ' + error.message);
+                
+                // Restore button
+                const btn = event.target.closest('button');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download"></i> Download Excel with Calculations';
+            }
+        }
         
         // ========== DATABASE FILTER SAVE/LOAD FUNCTIONS ==========
         

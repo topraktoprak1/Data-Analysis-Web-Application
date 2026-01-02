@@ -21,12 +21,12 @@ export default function AuthLayout({
                 <img
                   width={231}
                   height={48}
-                  src="/images/logo/auth-logo.svg"
-                  alt="Logo"
+                  src="/images/logo/png-transparent-database-logo-data-management-big-data-data-analysis-chart-computer-network-analytics-blue.png"
+                  alt="Veri Analizi Uygulaması"
                 />
               </Link>
               <p className="text-center text-gray-400 dark:text-white/60">
-                Free and Open-Source Tailwind CSS Admin Dashboard Template
+                Veri Analizi Uygulamasına Hoşgeldiniz!<br />
               </p>
             </div>
           </div>

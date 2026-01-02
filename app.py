@@ -149,6 +149,124 @@ def get_stats():
     subcon = 8038
     return jsonify({"apcb": apcb, "subcon": subcon})
 
+@app.route('/api/auto-calculated-fields')
+def get_auto_calculated_fields():
+    """Return metadata about auto-calculated fields"""
+    auto_fields = {
+        'fields': [
+            {
+                'name': 'North/South',
+                'description': 'Automatically determined from Scope using XLOOKUP from Info sheet',
+                'formula': 'XLOOKUP($G, Info!$N:$N, Info!$Q:$Q)',
+                'icon': 'compass'
+            },
+            {
+                'name': 'Currency',
+                'description': 'Auto-determined from ID (TL for 905264, otherwise from Hourly Rates)',
+                'formula': 'IF(A=905264,"TL",XLOOKUP($A,\'Hourly Rates\'!$A:$A,\'Hourly Rates\'!$G:$G))',
+                'icon': 'dollar-sign'
+            },
+            {
+                'name': 'Projects/Group',
+                'description': 'Automatically looked up from Projects using Info sheet',
+                'formula': 'XLOOKUP($H, Info!$O:$O, Info!$P:$P)',
+                'icon': 'sitemap'
+            },
+            {
+                'name': 'AP-CB/Subcon',
+                'description': 'Categorized based on Company name (AP-CB if contains "AP-CB", else Subcon)',
+                'formula': 'IF(ISNUMBER(SEARCH("AP-CB", E)), "AP-CB", "Subcon")',
+                'icon': 'building'
+            },
+            {
+                'name': 'LS/Unit Rate',
+                'description': 'Lumpsum for specific companies or if Scope contains "Lumpsum", else Unit Rate',
+                'formula': 'IF(OR((IFERROR(SEARCH("Lumpsum",G),0))>0,E="İ4",...), "Lumpsum", "Unit Rate")',
+                'icon': 'calculator'
+            },
+            {
+                'name': 'Hourly Base Rate',
+                'description': 'Base rate from Hourly Rates sheet based on ID and rate type',
+                'formula': 'XLOOKUP with conditional column selection based on AP-CB/Subcon and LS/Unit Rate',
+                'icon': 'clock'
+            },
+            {
+                'name': 'Hourly Additional Rates',
+                'description': 'Additional rates (0 for Lumpsum/AP-CB, else from Hourly Rates with currency conversion)',
+                'formula': 'Complex nested IF with XLOOKUP and TCMB rate conversion',
+                'icon': 'plus-circle'
+            },
+            {
+                'name': 'Hourly Rate',
+                'description': 'Sum of Hourly Base Rate and Hourly Additional Rates',
+                'formula': 'Hourly Base Rate + Hourly Additional Rates',
+                'icon': 'money-bill-wave'
+            },
+            {
+                'name': 'Cost',
+                'description': 'Total cost calculated as Hourly Rate × TOTAL MH',
+                'formula': 'Hourly Rate × TOTAL MH',
+                'icon': 'coins'
+            },
+            {
+                'name': 'General Total Cost (USD)',
+                'description': 'Cost converted to USD using TCMB exchange rates',
+                'formula': 'Currency conversion based on TL or EURO rates from Info sheet',
+                'icon': 'exchange-alt'
+            },
+            {
+                'name': 'Hourly Unit Rate (USD)',
+                'description': 'Unit rate in USD per man-hour',
+                'formula': 'General Total Cost (USD) / TOTAL MH',
+                'icon': 'divide'
+            },
+            {
+                'name': 'İşveren-Hakediş Birim Fiyat',
+                'description': 'Complex calculation based on NO-1, NO-2 values and Summary sheet',
+                'formula': 'Complex nested IF with multiple XLOOKUP operations',
+                'icon': 'file-invoice-dollar'
+            },
+            {
+                'name': 'İşveren-Hakediş (USD)',
+                'description': 'Total invoice amount in USD with currency conversion',
+                'formula': 'İşveren-Hakediş × currency rate (if EURO)',
+                'icon': 'receipt'
+            },
+            {
+                'name': 'İşveren-Hakediş Birim Fiyat (USD)',
+                'description': 'Unit price per man-hour for invoice',
+                'formula': 'İşveren-Hakediş (USD) / (Kuzey MH-Person or TOTAL MH)',
+                'icon': 'dollar-sign'
+            },
+            {
+                'name': 'NO-1, NO-2, NO-3, NO-10',
+                'description': 'Reference numbers from Info sheet for calculations',
+                'formula': 'Various XLOOKUP operations from Info sheet',
+                'icon': 'hashtag'
+            },
+            {
+                'name': 'Control-1, TM Liste, TM Kod',
+                'description': 'Control and tracking codes from Info sheet',
+                'formula': 'XLOOKUP operations based on Projects',
+                'icon': 'check-circle'
+            },
+            {
+                'name': 'Kontrol-1, Kontrol-2',
+                'description': 'Validation fields comparing calculated values',
+                'formula': 'XLOOKUP and equality check (NO-1 = Kontrol-1)',
+                'icon': 'shield-alt'
+            }
+        ],
+        'total_auto_fields': 17,
+        'manual_fields': [
+            'ID', 'Name Surname', 'Discipline', '(Week / Month)', 'Company', 
+            'Scope', 'Projects', 'Nationality', 'Office Location', 
+            'TOTAL MH', 'Kuzey MH', 'Kuzey MH-Person', 'Status'
+        ],
+        'info': 'These fields are automatically calculated based on Excel formulas when adding or updating records'
+    }
+    return jsonify(auto_fields)
+
 
 @app.route('/debug/routes')
 def debug_routes():
@@ -1305,6 +1423,130 @@ def logout():
     """Handle user logout"""
     session.clear()
     return jsonify({'success': True})
+
+@app.route('/api/download-calculated-data', methods=['GET'])
+@login_required
+def download_calculated_data():
+    """Download Excel file with all records including auto-calculated fields"""
+    try:
+        # Get user filter (None for admin, name for regular users)
+        user_filter = None if session.get('role') == 'admin' else session.get('name')
+        
+        # Get all records from database
+        df = get_data_from_db(user_filter)
+        
+        if df.empty:
+            return jsonify({'error': 'No data available'}), 404
+        
+        # Add calculated columns (KAR/ZARAR, BF KAR/ZARAR)
+        df = add_calculated_columns(df)
+        
+        # Create Excel file in memory
+        from io import BytesIO
+        output = BytesIO()
+        
+        # Use pandas ExcelWriter with xlsxwriter engine for better formatting
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Calculated Data', index=False)
+            
+            # Get workbook and worksheet objects
+            workbook = writer.book
+            worksheet = writer.sheets['Calculated Data']
+            
+            # Define formats
+            header_format = workbook.add_format({
+                'bold': True,
+                'bg_color': '#4e65df',
+                'font_color': 'white',
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter'
+            })
+            
+            # Auto-calculated field format (light green)
+            auto_calc_format = workbook.add_format({
+                'bg_color': '#d4edda',
+                'border': 1
+            })
+            
+            # Manual input field format (light blue)
+            manual_format = workbook.add_format({
+                'bg_color': '#d1ecf1',
+                'border': 1
+            })
+            
+            # Number format
+            number_format = workbook.add_format({
+                'num_format': '#,##0.00',
+                'border': 1
+            })
+            
+            # Auto-calculated fields list
+            auto_calc_fields = [
+                'North/South', 'Currency', 'Projects/Group', 'AP-CB/Subcon', 
+                'LS/Unit Rate', 'Hourly Base Rate', 'Hourly Additional Rates',
+                'Hourly Rate', 'Cost', 'General Total Cost (USD)', 
+                'Hourly Unit Rate (USD)', 'İşveren-Hakediş Birim Fiyat',
+                'İşveren- Hakediş', 'İşveren- Hakediş (USD)', 
+                'İşveren-Hakediş Birim Fiyat (USD)', 'Control-1', 'TM Liste',
+                'TM Kod', 'NO-1', 'NO-2', 'NO-3', 'NO-10', 'Kontrol-1', 
+                'Kontrol-2', 'Konrol-1', 'Knrtol-2', 'KAR/ZARAR', 'BF KAR/ZARAR'
+            ]
+            
+            # Format header row
+            for col_num, col_name in enumerate(df.columns):
+                worksheet.write(0, col_num, col_name, header_format)
+                
+                # Determine if column is auto-calculated
+                is_auto_calc = any(field.lower() in col_name.lower().replace('\n', ' ') 
+                                  for field in auto_calc_fields)
+                
+                # Apply formatting to data cells
+                if is_auto_calc:
+                    # Check if numeric column
+                    if pd.api.types.is_numeric_dtype(df[col_name]):
+                        for row_num in range(len(df)):
+                            worksheet.write(row_num + 1, col_num, df.iloc[row_num, col_num], number_format)
+                    else:
+                        worksheet.set_column(col_num, col_num, 15, auto_calc_format)
+                else:
+                    worksheet.set_column(col_num, col_num, 15, manual_format)
+            
+            # Add a legend sheet
+            legend_df = pd.DataFrame({
+                'Field Type': ['Manual Input', 'Auto-Calculated'],
+                'Color Code': ['Light Blue', 'Light Green'],
+                'Description': [
+                    'Fields that require manual input from users',
+                    'Fields automatically calculated based on Excel formulas'
+                ]
+            })
+            legend_df.to_excel(writer, sheet_name='Legend', index=False)
+            
+            # Format legend sheet
+            legend_sheet = writer.sheets['Legend']
+            for col_num, col_name in enumerate(legend_df.columns):
+                legend_sheet.write(0, col_num, col_name, header_format)
+                legend_sheet.set_column(col_num, col_num, 20)
+        
+        output.seek(0)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'calculated_data_{timestamp}.xlsx'
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        print(f"Error generating Excel file: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/add-record', methods=['POST'])
 @login_required

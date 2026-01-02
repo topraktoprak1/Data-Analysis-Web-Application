@@ -3,7 +3,7 @@ import { ApexOptions } from "apexcharts";
 import PieChart from "../pie/PieChart";
 
 import ChartTab from "../../common/ChartTab";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 type TabType = "optionOne" | "optionTwo" | "optionThree";
 
@@ -41,6 +41,7 @@ export default function StatisticsChart() {
     { chartType: 'line', xField: null, yField: null, groupByField: null, selectedYears: [] }
   ]);
   const [selectedYears, setSelectedYears] = useState<number[]>([]); // empty = all
+  const [selectedColor, setSelectedColor] = useState<string | null>(null);
 
   // Extract years from records
   function extractYears(records: any[]): number[] {
@@ -185,7 +186,7 @@ export default function StatisticsChart() {
   // When availableYears changes, update year if needed
   useEffect(() => {
     if (availableYears.length === 0) return;
-    // default to last year selected if none selected
+    // Auto-select the last year (most recent) if no year is selected
     if (selectedYears.length === 0) {
       setSelectedYears([availableYears[availableYears.length - 1]]);
     }
@@ -206,15 +207,46 @@ export default function StatisticsChart() {
     setSeries(mapped);
   }, [rawRecords, chartType, xField, yField, groupByField, tab, selectedYears]);
 
-  const options: ApexOptions = {
-    legend: {
-      show: false,
-    },
-    colors: [
+  // Filtered series for search
+  const filteredSeries = search.trim()
+    ? series.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : series;
+
+  // Keep selectedNames in sync with filteredSeries
+  useEffect(() => {
+    // When tab changes, reset selection to show all
+    if (series.length > 0) {
+      setSelectedNames(series.map(s => s.name));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, series]);
+
+  // Handle search filtering
+  useEffect(() => {
+    if (search.trim()) {
+      // If searching, auto-select filtered results
+      setSelectedNames(filteredSeries.map(s => s.name));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  // Only show selected names in the chart
+  const displayedSeries = filteredSeries.filter(s => selectedNames.includes(s.name));
+
+  const options: ApexOptions = useMemo(() => {
+    const baseColors = [
       "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
       "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16",
       "#06B6D4", "#A855F7", "#FBBF24", "#F43F5E", "#22D3EE"
-    ],
+    ];
+    
+    return {
+    legend: {
+      show: false,
+    },
+    colors: (displayedSeries.length === 1 && selectedColor)
+      ? [selectedColor, ...baseColors.filter(c => c !== selectedColor)]
+      : baseColors,
     chart: {
       fontFamily: "Outfit, sans-serif",
       height: 310,
@@ -241,9 +273,15 @@ export default function StatisticsChart() {
       enabled: true,
       shared: true,
       intersect: false,
+      style: {
+        fontSize: '14px',
+        fontFamily: 'Outfit, sans-serif'
+      },
       y: {
         formatter: function (val: number) {
-          return "$" + val.toLocaleString();
+          const currentYField = yField || 'KAR/ZARAR';
+          const isCurrency = currentYField === 'KAR/ZARAR' || currentYField.toLowerCase().includes('cost') || currentYField.toLowerCase().includes('usd') || currentYField.toLowerCase().includes('price') || currentYField.toLowerCase().includes('hakediş');
+          return isCurrency ? "$" + val.toLocaleString() : val.toLocaleString();
         },
       },
     },
@@ -254,42 +292,29 @@ export default function StatisticsChart() {
       axisTicks: { show: false },
       tooltip: { enabled: false },
       labels: {
-        style: { fontSize: "12px", colors: ["#6B7280"] },
+        style: { fontSize: "14px", colors: ["#6B7280"], fontWeight: 500 },
       },
     },
     yaxis: {
       labels: {
-        style: { fontSize: "12px", colors: ["#6B7280"] },
+        style: { fontSize: "14px", colors: ["#6B7280"], fontWeight: 500 },
         formatter: function (val: number) {
-          if (Math.abs(val) >= 1e9) return "$" + (val / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
-          if (Math.abs(val) >= 1e6) return "$" + (val / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
-          if (Math.abs(val) >= 1e3) return "$" + (val / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
-          return "$" + val.toLocaleString();
+          const currentYField = yField || 'KAR/ZARAR';
+          const isCurrency = currentYField === 'KAR/ZARAR' || currentYField.toLowerCase().includes('cost') || currentYField.toLowerCase().includes('usd') || currentYField.toLowerCase().includes('price') || currentYField.toLowerCase().includes('hakediş');
+          const prefix = isCurrency ? "$" : "";
+          if (Math.abs(val) >= 1e9) return prefix + (val / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+          if (Math.abs(val) >= 1e6) return prefix + (val / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+          if (Math.abs(val) >= 1e3) return prefix + (val / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+          return prefix + val.toLocaleString();
         },
       },
-      title: { text: "Kar-Zarar (USD)", style: { fontSize: "14px", color: "#6B7280" } },
+      title: { text: yField || 'KAR/ZARAR', style: { fontSize: "16px", color: "#6B7280", fontWeight: 600 } },
     },
   };
+  }, [categoriesState, displayedSeries.length, selectedColor, yField, tab]);
 
-  // Filtered series for search
-  const filteredSeries = search.trim()
-    ? series.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()))
-    : series;
-
-  // Keep selectedNames in sync with filteredSeries
-  useEffect(() => {
-    // If no selection, select all filtered names by default
-    if (filteredSeries.length > 0 && selectedNames.length === 0) {
-      setSelectedNames(filteredSeries.map(s => s.name));
-    } else {
-      // Remove names that are no longer in filteredSeries
-      setSelectedNames(prev => prev.filter(n => filteredSeries.some(s => s.name === n)));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, series, tab, year]);
-
-  // Only show selected names in the chart
-  const displayedSeries = filteredSeries.filter(s => selectedNames.includes(s.name));
+  // Color palette for selection
+  const colorPalette = options.colors as string[];
 
   // Helper: compute quartiles for an array of numbers
   function medianOf(sorted: number[], start = 0, end = sorted.length - 1) {
@@ -421,8 +446,139 @@ export default function StatisticsChart() {
             Target you’ve set for each month
           </p>
         </div>
-        <div className="flex items-start w-full gap-3 sm:justify-end">
-            <ChartTab selected={tab} setSelected={setTab} />
+        <div className="flex flex-wrap items-start w-full gap-3 sm:justify-end">            <ChartTab selected={tab} setSelected={setTab} />            {numberOfCharts === 1 && (
+              <>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-800 dark:text-white">Chart Type:</label>
+                  <select
+                    value={panels[0]?.chartType || chartType}
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      setPanels(prev => {
+                        const cp = [...prev];
+                        if (!cp[0]) cp[0] = { chartType: newType, xField, yField, groupByField, selectedYears: [] };
+                        else cp[0] = { ...cp[0], chartType: newType };
+                        return cp;
+                      });
+                      setChartType(newType as any);
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="line">📈 Line</option>
+                    <option value="bar">📊 Bar</option>
+                    <option value="pie">🥧 Pie</option>
+                    <option value="box">📦 Box Plot</option>
+                  </select>
+                </div>
+                
+                {/* Conditional controls based on chart type */}
+                {(panels[0]?.chartType === 'pie' || chartType === 'pie') ? (
+                  // Pie Chart specific controls
+                  <>
+                    {/* Labels Field Selector (what creates the slices) */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-800 dark:text-white">Labels:</label>
+                      <select
+                        value={groupByField || ''}
+                        onChange={(e) => setGroupByField(e.target.value || null)}
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">(Tab Default)</option>
+                        {availableFields.map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Value Field Selector (what determines slice size) */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-800 dark:text-white">Value:</label>
+                      <select
+                        value={yField || 'KAR/ZARAR'}
+                        onChange={(e) => setYField(e.target.value || null)}
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="KAR/ZARAR">KAR/ZARAR</option>
+                        {numericFields.map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  // Line/Bar/Box chart controls
+                  <>
+                    {/* X-Axis Field Selector */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-800 dark:text-white">X-Axis:</label>
+                      <select
+                        value={xField || ''}
+                        onChange={(e) => setXField(e.target.value || null)}
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {availableFields.map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Y-Axis Field Selector */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-800 dark:text-white">Y-Axis:</label>
+                      <select
+                        value={yField || 'KAR/ZARAR'}
+                        onChange={(e) => setYField(e.target.value || null)}
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="KAR/ZARAR">KAR/ZARAR</option>
+                        {numericFields.map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Group By Field Selector */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-800 dark:text-white">Group By:</label>
+                      <select
+                        value={groupByField || ''}
+                        onChange={(e) => setGroupByField(e.target.value || null)}
+                        className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">(Tab Default)</option>
+                        {availableFields.map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {/* Color Selector - Only show when single series selected */}
+                {displayedSeries.length === 1 && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-800 dark:text-white">Color:</label>
+                    <select
+                      value={selectedColor || colorPalette[0]}
+                      onChange={(e) => setSelectedColor(e.target.value || null)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      style={{ minWidth: '120px' }}
+                    >
+                      {colorPalette.map((color, idx) => (
+                        <option key={color} value={color} style={{ backgroundColor: color, color: '#fff' }}>
+                          Color {idx + 1}
+                        </option>
+                      ))}
+                    </select>
+                    <div 
+                      className="w-8 h-8 rounded border-2 border-gray-300 dark:border-gray-600 shadow-sm"
+                      style={{ backgroundColor: selectedColor || colorPalette[0] }}
+                      title={selectedColor || colorPalette[0]}
+                    />
+                  </div>
+                )}
+              </>
+            )}
             <div className="ml-4 flex items-center gap-2">
               <label className="text-sm ml-4 mr-2 text-gray-800 dark:text-white"># Charts:</label>
               <input
@@ -437,32 +593,20 @@ export default function StatisticsChart() {
         </div>
       </div>
       {availableYears.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2 mt-6 mb-4 sm:justify-end">
             <span className="text-sm font-semibold text-gray-800 dark:text-white mr-2">Yıl Seç:</span>
             <div className="inline-flex rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shadow p-1">
-              <button
-                onClick={() => setSelectedYears([])}
-                className={`px-4 py-1 font-medium rounded ${
-                  selectedYears.length === 0
-                    ? "bg-blue-600 text-white shadow"
-                    : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:bg-blue-100 dark:hover:bg-gray-700"
-                } ml-0`}
-                style={{ minWidth: 56, cursor: 'pointer' }}
-                tabIndex={0}
-              >
-                All
-              </button>
               {availableYears.map((y, idx) => (
                 <button
                   key={y}
                   onClick={() => {
-                    setSelectedYears(prev => prev.includes(y) ? prev.filter(x => x !== y) : [...prev, y]);
+                    setSelectedYears([y]);
                   }}
                   className={`px-4 py-1 font-medium rounded ${
                     selectedYears.includes(y)
                       ? "bg-blue-600 text-white shadow"
                       : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:bg-blue-100 dark:hover:bg-gray-700"
-                  } ${idx === 0 ? "ml-1" : "ml-1"}`}
+                  } ${idx === 0 ? "ml-0" : "ml-1"}`}
                   style={{ minWidth: 56, cursor: 'pointer' }}
                   tabIndex={0}
                 >
@@ -497,12 +641,11 @@ export default function StatisticsChart() {
               ? "flex-1 flex items-center justify-center min-h-0 w-full"
               : "flex-1 flex items-center justify-center min-h-0"
           }
-          style={fullscreen ? { width: "100vw", marginLeft: "-2rem", marginRight: "-2rem" } : {}}
         >
           {loading ? (
             <div className="text-base font-semibold text-gray-500 dark:text-gray-300">Loading...</div>
           ) : (
-            <div style={{ width: "100%", height: fullscreen ? "90vh" : 500 }}>
+            <div style={{ width: "100%", height: fullscreen ? "calc(100vh - 250px)" : 500 }}>
                   {numberOfCharts > 1 ? (
                     // Render configured panels in a grid
                     (() => {
@@ -546,11 +689,60 @@ export default function StatisticsChart() {
                                   {(!agg || agg.length === 0) ? (
                                     <div className="text-sm text-gray-500">No data</div>
                                   ) : multiType === 'pie' ? (
-                                    <Chart options={{ ...options, labels: agg.map((a:any)=>a.name), xaxis: { ...(options.xaxis||{}), categories: panelCats } }} series={agg.map((a:any)=>a.data.reduce((s:number,v:number)=>s+Number(v||0),0))} type="pie" height={200} width={"100%"} />
+                                    (() => {
+                                      const labels = agg.map((a:any)=>a.name);
+                                      const pieSeries = agg.map((a:any)=>a.data.reduce((s:number,v:number)=>s+Number(v||0),0));
+                                      if (!pieSeries || pieSeries.length === 0) return <div className="text-sm text-gray-500">No data</div>;
+                                      return <Chart 
+                                        key={`pie-panel-${idx}-${labels.join('-')}`}
+                                        options={{ 
+                                        chart: { 
+                                          type: 'pie',
+                                          fontFamily: "Outfit, sans-serif",
+                                        },
+                                        labels: labels, 
+                                        colors: options.colors,
+                                        dataLabels: { 
+                                          enabled: true,
+                                          style: {
+                                            fontSize: '10px',
+                                          }
+                                        },
+                                        legend: { 
+                                          show: true, 
+                                          position: 'bottom', 
+                                          fontSize: '9px',
+                                          fontFamily: 'Outfit, sans-serif',
+                                        },
+                                        tooltip: {
+                                          enabled: true,
+                                          y: {
+                                            formatter: function (val: number) {
+                                              return "$" + val.toLocaleString();
+                                            },
+                                          },
+                                        },
+                                        plotOptions: {
+                                          pie: {
+                                            dataLabels: {
+                                              offset: -5
+                                            }
+                                          }
+                                        }
+                                      }} series={pieSeries} type="pie" height={200} width={"100%"} />;
+                                    })()
                                   ) : multiType === 'boxPlot' ? (
-                                    <Chart options={{ ...options, chart: { ...(options.chart||{}), type: 'boxPlot' }, xaxis: { ...(options.xaxis||{}), categories: panelCats } }} series={getBoxPlotSeriesFromAgg(agg, panelCats)} type={'boxPlot'} height={200} width={"100%"} />
+                                    (() => {
+                                      const boxSeries = getBoxPlotSeriesFromAgg(agg, panelCats);
+                                      if (!boxSeries || boxSeries.length === 0) return <div className="text-sm text-gray-500">No data</div>;
+                                      return <Chart options={{ ...options, chart: { ...options.chart, type: 'boxPlot' }, xaxis: { type: 'category', categories: panelCats } }} series={boxSeries} type={'boxPlot'} height={200} width={"100%"} />;
+                                    })()
                                   ) : (
-                                    <Chart options={{ ...options, chart: { ...(options.chart||{}), type: panelCfg.chartType }, xaxis: { ...(options.xaxis||{}), categories: panelCats } }} series={agg.map((a:any)=>({ name: a.name, data: a.data }))} type={panelCfg.chartType as any} height={200} width={"100%"} />
+                                    (() => {
+                                      const chartSeries = agg.map((a:any)=>({ name: a.name, data: a.data }));
+                                      if (!chartSeries || chartSeries.length === 0) return <div className="text-sm text-gray-500">No data</div>;
+                                      return <Chart options={{ ...options, chart: { ...options.chart, type: panelCfg.chartType || 'line' }, xaxis: { type: 'category', categories: panelCats } }} series={chartSeries} type={panelCfg.chartType as any || 'line'} height={200} width={"100%"} />;
+                                    })()
                                   )}
                                 </div>
                               </div>
@@ -560,38 +752,133 @@ export default function StatisticsChart() {
                       );
                     })()
                   ) : chartType === "box" ? (
-                    <Chart
-                      options={{
-                        ...options,
-                        chart: { ...(options.chart || {}), type: "boxPlot" },
-                        xaxis: { ...(options.xaxis || {}), type: "category" },
-                      }}
-                      series={getBoxPlotSeries(displayedSeries)}
-                      type="boxPlot"
-                      height={fullscreen ? "100%" : 500}
-                      width={"100%"}
-                    />
+                    (() => {
+                      const boxSeries = getBoxPlotSeries(displayedSeries);
+                      if (!boxSeries || boxSeries.length === 0 || !displayedSeries || displayedSeries.length === 0) {
+                        return <div className="text-sm text-gray-500">No data for box plot</div>;
+                      }
+                      return (
+                        <Chart
+                          options={{
+                            ...options,
+                            chart: { ...options.chart, type: "boxPlot" },
+                            xaxis: { type: "category", categories: categoriesState },
+                          }}
+                          series={boxSeries}
+                          type="boxPlot"
+                          height={fullscreen ? "100%" : 500}
+                          width={"100%"}
+                        />
+                      );
+                    })()
                   ) : (
                     // Single-panel rendering: use panels[0] if present to configure chart
                     (() => {
                       const p = panels && panels[0] ? panels[0] as any : { chartType, xField, yField, groupByField };
-                      const agg = aggregateForConfig(p);
+                      // Override selectedYears with current state to ensure year filtering works
+                      const configWithYears = { ...p, selectedYears };
+                      const agg = aggregateForConfig(configWithYears);
                       const panelCats = (agg && agg[0] && agg[0].categories) ? agg[0].categories : categoriesState;
                       if (!agg || agg.length === 0) return (<div className="text-sm text-gray-500">No data</div>);
-                      if (p.chartType === 'pie') {
-                        const labels = agg.map((a:any) => a.name);
-                        const seriesTotals = agg.map((a:any) => a.data.reduce((s:number,v:number)=>s+Number(v||0),0));
+                      
+                      // Filter aggregated data based on selectedNames
+                      const filteredAgg = agg.filter((a: any) => selectedNames.includes(a.name));
+                      if (filteredAgg.length === 0) return (<div className="text-sm text-gray-500">No data selected</div>);
+                      
+                      const currentChartType = p.chartType || 'line';
+                      
+                      if (currentChartType === 'pie') {
+                        const labels = filteredAgg.map((a:any) => a.name);
+                        const seriesTotals = filteredAgg.map((a:any) => a.data.reduce((s:number,v:number)=>s+Number(v||0),0));
+                        
+                        // Debug: log to check what we're getting
+                        console.log('Pie Chart Debug:', { labels, seriesTotals, agg });
+                        
+                        if (!seriesTotals || seriesTotals.length === 0) {
+                          return <div className="text-sm text-gray-500">No data for pie chart</div>;
+                        }
                         return (
-                          <Chart options={{ ...options, labels, xaxis: { ...(options.xaxis||{}), categories: panelCats } }} series={seriesTotals} type="pie" height={fullscreen ? "100%" : 500} width={"100%"} />
+                          <Chart 
+                            key={`pie-${labels.join('-')}`}
+                            options={{ 
+                              chart: { 
+                                type: 'pie',
+                                fontFamily: "Outfit, sans-serif",
+                                toolbar: { show: true },
+                              },
+                              labels: labels,
+                              colors: options.colors,
+                              dataLabels: { 
+                                enabled: true,
+                                style: {
+                                  fontSize: '12px',
+                                  fontWeight: 'bold',
+                                }
+                              },
+                              legend: { 
+                                show: true, 
+                                position: 'bottom',
+                                fontSize: '12px',
+                                fontFamily: 'Outfit, sans-serif',
+                              },
+                              tooltip: {
+                                enabled: true,
+                                y: {
+                                  formatter: function (val: number) {
+                                    return "$" + val.toLocaleString();
+                                  },
+                                },
+                              },
+                              plotOptions: {
+                                pie: {
+                                  dataLabels: {
+                                    offset: -5
+                                  }
+                                }
+                              }
+                            }} 
+                            series={seriesTotals} 
+                            type="pie" 
+                            height={fullscreen ? "100%" : 500} 
+                            width={"100%"} 
+                          />
                         );
                       }
-                      if (p.chartType === 'box') {
+                      if (currentChartType === 'box') {
+                        const boxSeries = getBoxPlotSeriesFromAgg(filteredAgg, panelCats);
+                        if (!boxSeries || boxSeries.length === 0) {
+                          return <div className="text-sm text-gray-500">No data for box plot</div>;
+                        }
                         return (
-                          <Chart options={{ ...options, chart: { ...(options.chart||{}), type: 'boxPlot' }, xaxis: { ...(options.xaxis||{}), categories: panelCats } }} series={getBoxPlotSeriesFromAgg(agg, panelCats)} type={'boxPlot'} height={fullscreen ? "100%" : 500} width={"100%"} />
+                          <Chart 
+                            options={{ 
+                              ...options, 
+                              chart: { ...options.chart, type: 'boxPlot' }, 
+                              xaxis: { type: 'category', categories: panelCats } 
+                            }} 
+                            series={boxSeries} 
+                            type={'boxPlot'} 
+                            height={fullscreen ? "100%" : 500} 
+                            width={"100%"} 
+                          />
                         );
+                      }
+                      const chartSeries = filteredAgg.map((a:any)=>({ name: a.name, data: a.data }));
+                      if (!chartSeries || chartSeries.length === 0) {
+                        return <div className="text-sm text-gray-500">No data for chart</div>;
                       }
                       return (
-                        <Chart options={{ ...options, chart: { ...(options.chart || {}), type: p.chartType }, xaxis: { ...(options.xaxis||{}), categories: panelCats } }} series={agg.map((a:any)=>({ name: a.name, data: a.data }))} type={p.chartType as any} height={fullscreen ? "100%" : 500} width={"100%"} />
+                        <Chart 
+                          options={{ 
+                            ...options, 
+                            chart: { ...options.chart, type: currentChartType || 'line' }, 
+                            xaxis: { type: 'category', categories: panelCats } 
+                          }} 
+                          series={chartSeries} 
+                          type={currentChartType as any || 'line'} 
+                          height={fullscreen ? "100%" : 500} 
+                          width={"100%"} 
+                        />
                       );
                     })()
                   )}
@@ -601,7 +888,9 @@ export default function StatisticsChart() {
         {/* Summary list showing total profit/loss for each staff */}
         {!loading && filteredSeries.length > 0 && (
           <div className="hidden lg:block w-72 overflow-y-auto bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Total {tabConfig[tab].label}</h4>
+            <h4 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">
+              Seçilebilecek Ögeler
+            </h4>
             {/* Search bar */}
             <input
               type="text"
@@ -653,7 +942,16 @@ export default function StatisticsChart() {
                           : "text-red-600 dark:text-red-400"
                       }`}
                     >
-                      {item.total >= 0 ? "+" : ""}${(item.total / 1000).toFixed(1)}K
+                      {(() => {
+                        const currentYField = yField || 'KAR/ZARAR';
+                        const isCurrency = currentYField === 'KAR/ZARAR' || currentYField.toLowerCase().includes('cost') || currentYField.toLowerCase().includes('usd') || currentYField.toLowerCase().includes('price') || currentYField.toLowerCase().includes('hakediş');
+                        if (isCurrency) {
+                          return `${item.total >= 0 ? "+" : ""}$${(item.total / 1000).toFixed(1)}K`;
+                        } else {
+                          // For non-currency fields, show the raw total
+                          return item.total.toLocaleString(undefined, { maximumFractionDigits: 1 });
+                        }
+                      })()}
                     </span>
                   </div>
                 ))}

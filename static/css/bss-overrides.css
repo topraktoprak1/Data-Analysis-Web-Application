@@ -51,6 +51,35 @@
   margin-left: 1rem !important;
 }
 
+/* Auto-Calculated Fields Styling */
+.auto-field-formula {
+  transition: all 0.3s ease-in-out;
+}
+
+.auto-field-formula code {
+  display: block;
+  padding: 0.5rem;
+  background-color: #f8f9fa;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+#autoFieldsCard .card {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+#autoFieldsCard .card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+.badge {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.875rem;
+}
+
 .my-0 {
   margin-top: 0 !important;
   margin-bottom: 0 !important;

@@ -2,6 +2,7 @@ import EcommerceMetrics from "../../components/ecommerce/EcommerceMetrics";
 import MonthlySalesChart from "../../components/ecommerce/MonthlySalesChart";
 import StatisticsChart from "../../components/ecommerce/StatisticsChart";
 import MonthlyTarget from "../../components/ecommerce/PivotTableOnMainPage";
+import AutoCalculatedFields from "../../components/ecommerce/AutoCalculatedFields";
 import PageMeta from "../../components/common/PageMeta";
 
 export default function Home() {
@@ -24,6 +25,10 @@ export default function Home() {
 
         <div className="col-span-12">
           <StatisticsChart />
+        </div>
+
+        <div className="col-span-12">
+          <AutoCalculatedFields />
         </div>
 
         {/* DemographicCard removed */}

@@ -18,15 +18,26 @@ import Blank from "./pages/Blank";
 import AppLayout from "./layout/AppLayout";
 import { ScrollToTop } from "./components/common/ScrollToTop";
 import Home from "./pages/Dashboard/Home";
+import { useAuth } from "./context/AuthContext";
+import { Navigate } from "react-router";
 
 export default function App() {
+  function RequireAuth({ children }: { children: JSX.Element }) {
+    try {
+      const { user } = useAuth();
+      if (!user) return <Navigate to="/signin" replace />;
+      return children;
+    } catch (e) {
+      return <Navigate to="/signin" replace />;
+    }
+  }
   return (
     <>
       <Router>
         <ScrollToTop />
         <Routes>
           {/* Dashboard Layout */}
-          <Route element={<AppLayout />}>
+          <Route element={<RequireAuth children={<AppLayout />} />}>
             <Route index path="/" element={<Home />} />
 
             {/* Others Page */}

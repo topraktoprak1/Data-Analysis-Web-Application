@@ -126,6 +126,14 @@ export default function MonthlySalesChart() {
       title: {
         text: undefined,
       },
+      labels: {
+        formatter: (val: number) => {
+          if (Math.abs(val) >= 1e9) return "$" + (val / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+          if (Math.abs(val) >= 1e6) return "$" + (val / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+          if (Math.abs(val) >= 1e3) return "$" + (val / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+          return "$" + Math.round(val).toLocaleString();
+        },
+      },
     },
     grid: {
       yaxis: {
