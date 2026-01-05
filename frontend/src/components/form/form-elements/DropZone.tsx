@@ -13,17 +13,20 @@ const DropzoneComponent: React.FC<DropzoneComponentProps> = ({ onUploadSuccess }
     const formData = new FormData();
     formData.append("file", acceptedFiles[0]);
     try {
-      const response = await fetch("http://10.135.8.47:5000/upload", {
+      const response = await fetch("/api/upload", {
         method: "POST",
+        credentials: "include", // Include cookies for authentication
         body: formData,
       });
       if (!response.ok) {
-        throw new Error("Failed to upload file");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed with status ${response.status}`);
       }
       const data = await response.json();
-      alert("File uploaded and processed: " + JSON.stringify(data));
+      alert(`Success! ${data.message || 'File uploaded and processed'}`);
       if (onUploadSuccess) onUploadSuccess();
     } catch (error) {
+      console.error("Upload error:", error);
       alert("Upload failed: " + error);
     }
   };
@@ -37,14 +40,19 @@ const DropzoneComponent: React.FC<DropzoneComponentProps> = ({ onUploadSuccess }
   });
   const deleteFile = async () => {
     try {
-      const response = await fetch("http://10.135.8.47:5000/delete", {
+      const response = await fetch("/api/clear-database", {
         method: "POST",
+        credentials: "include", // Include cookies for authentication
       });
       if (!response.ok) {
-        throw new Error("Failed to delete file");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Clear failed with status ${response.status}`);
       }
-      alert("Existing data cleared successfully.");
+      const result = await response.json();
+      alert("Existing data cleared successfully!");
+      if (onUploadSuccess) onUploadSuccess(); // Refresh the page/data
     } catch (error) {
+      console.error("Delete error:", error);
       alert("Delete failed: " + error);
     }
   };

@@ -3,7 +3,7 @@ import { ApexOptions } from "apexcharts";
 import PieChart from "./PieChart";
 
 import ChartTab from "../common/ChartTab";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 type TabType = "optionOne" | "optionTwo" | "optionThree";
 
@@ -27,6 +27,7 @@ export default function StatisticsChart() {
   const [year, setYear] = useState<number | null>(null);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const [rowField, setRowField] = useState<string | null>(null);
   const [colField, setColField] = useState<string | null>(null);
@@ -172,6 +173,14 @@ export default function StatisticsChart() {
     }
   }, [availableYears]);
 
+  // Debounce search input to reduce re-renders
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const options: ApexOptions = useMemo(() => ({
     legend: {
       show: false,
@@ -186,7 +195,21 @@ export default function StatisticsChart() {
       height: 310,
       type: "line",
       toolbar: { show: true },
-      zoom: { enabled: true },
+      zoom: { enabled: false },
+      animations: {
+        enabled: true,
+        easing: 'easeinout',
+        speed: 400,
+        animateGradually: {
+          enabled: false
+        },
+        dynamicAnimation: {
+          enabled: false
+        }
+      },
+      selection: {
+        enabled: false
+      },
     },
     stroke: { curve: "smooth", width: 3 },
     fill: { type: "solid", opacity: 1 },
@@ -194,7 +217,7 @@ export default function StatisticsChart() {
       size: 5,
       strokeColors: "#fff",
       strokeWidth: 2,
-      hover: { size: 7 },
+      hover: { size: 7, sizeOffset: 2 },
       discrete: [],
     },
     grid: {
@@ -207,9 +230,20 @@ export default function StatisticsChart() {
       enabled: true,
       shared: true,
       intersect: false,
+      followCursor: true,
+      custom: undefined,
       y: {
         formatter: function (val: number) {
           return "$" + val.toLocaleString();
+        },
+        title: {
+          formatter: (seriesName: string) => seriesName + ": ",
+        },
+      },
+      x: {
+        show: true,
+        formatter: function (val: any) {
+          return val;
         },
       },
     },
@@ -249,22 +283,49 @@ export default function StatisticsChart() {
   // derive chart options with color override when single series selected
   // (moved below `displayedSeries` definition to avoid TDZ ReferenceError)
 
-  // Filtered series for search
-  const filteredSeries = search.trim()
-    ? series.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()))
-    : series;
+  // Filtered series for search (using debounced search)
+  const filteredSeries = useMemo(() => {
+    if (!debouncedSearch.trim()) return series;
+    return series.filter((s) => s.name.toLowerCase().includes(debouncedSearch.trim().toLowerCase()));
+  }, [debouncedSearch, series]);
 
-  // Keep selectedNames in sync with filteredSeries
+  // Keep selectedNames in sync with series changes
   useEffect(() => {
-    // If no selection, select all filtered names by default
-    if (filteredSeries.length > 0 && selectedNames.length === 0) {
-      setSelectedNames(filteredSeries.map(s => s.name));
-    } else {
-      // Remove names that are no longer in filteredSeries
-      setSelectedNames(prev => prev.filter(n => filteredSeries.some(s => s.name === n)));
+    // When tab or year changes, select top 15 by total value to improve performance
+    if (series.length > 0 && !debouncedSearch.trim()) {
+      const sortedByTotal = series
+        .map(s => ({
+          name: s.name,
+          total: s.data.reduce((acc: number, val: number) => acc + Math.abs(val), 0)
+        }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 15)
+        .map(s => s.name);
+      setSelectedNames(sortedByTotal);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, series, tab, year]);
+  }, [tab, year, series]);
+
+  // Handle search filtering
+  useEffect(() => {
+    if (debouncedSearch.trim()) {
+      // If searching, auto-select filtered results (max 15)
+      const filtered = series.filter((s) => s.name.toLowerCase().includes(debouncedSearch.trim().toLowerCase()));
+      setSelectedNames(filtered.slice(0, 15).map(s => s.name));
+    } else if (series.length > 0) {
+      // When search is cleared, restore top 15 selection
+      const sortedByTotal = series
+        .map(s => ({
+          name: s.name,
+          total: s.data.reduce((acc: number, val: number) => acc + Math.abs(val), 0)
+        }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 15)
+        .map(s => s.name);
+      setSelectedNames(sortedByTotal);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
 
   // Only show selected names in the chart
   const displayedSeries = filteredSeries.filter(s => selectedNames.includes(s.name));

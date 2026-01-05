@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch, downloadFile } from '../../utils/api';
 
 interface AutoField {
   name: string;
@@ -26,8 +27,7 @@ export default function AutoCalculatedFields() {
 
   const fetchAutoFields = async () => {
     try {
-      const response = await fetch('/api/auto-calculated-fields');
-      const result = await response.json();
+      const result = await apiFetch<AutoFieldsData>('/api/auto-calculated-fields');
       setData(result);
     } catch (error) {
       console.error('Error fetching auto-calculated fields:', error);
@@ -39,38 +39,12 @@ export default function AutoCalculatedFields() {
   const downloadCalculatedData = async () => {
     try {
       setDownloading(true);
-      
-      const response = await fetch('/api/download-calculated-data');
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to generate Excel file');
-      }
-      
-      // Get filename from response headers
-      const contentDisposition = response.headers.get('content-disposition');
-      let filename = 'calculated_data.xlsx';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (filenameMatch && filenameMatch[1]) {
-          filename = filenameMatch[1].replace(/['"]/g, '');
-        }
-      }
-      
-      // Download the file
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
+      await downloadFile('/api/download-calculated-data', 'calculated_data.xlsx');
     } catch (error) {
       console.error('Download error:', error);
-      alert('Error downloading file: ' + (error as Error).message);
+      if ((error as Error).message !== 'Session expired') {
+        alert('Error downloading file: ' + (error as Error).message);
+      }
     } finally {
       setDownloading(false);
     }

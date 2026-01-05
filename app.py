@@ -286,7 +286,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['SESSION_COOKIE_SECURE'] = False  # Set True in production with HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = 28800  # 8 hours (28800 seconds)
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour (3600 seconds)
 
 # PostgreSQL configuration
 # For local development, use: postgresql://username:password@localhost:5432/database_name
@@ -374,6 +374,10 @@ def login_required(f):
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect(url_for('login_page'))
+        
+        # Update last activity time to keep session alive
+        session.modified = True
+        
         return f(*args, **kwargs)
     return decorated_function
 
@@ -591,7 +595,7 @@ def calculate_auto_fields(record_data, file_path=None):
     
     # 16. AP-CB/Subcon = IF(ISNUMBER(SEARCH("AP-CB", E)), "AP-CB", "Subcon")
     # E = Company column
-    ap_cb_subcon = 'AP-CB' if 'AP-CB' in company.upper() else 'Subcon'
+    ap_cb_subcon = 'AP-CB' if 'AP-CB' in company else 'Subcon'
     record_data['AP-CB /\nSubcon'] = ap_cb_subcon
     
     # 20. LS/Unit Rate = IF(OR((IFERROR(SEARCH("Lumpsum",G),0))>0,E="İ4",E="DEGENKOLB",E="Kilci Danışmanlık"),"Lumpsum","Unit Rate")
@@ -834,14 +838,27 @@ def load_excel_data(file_path, user_filter=None):
     """Load Excel file and return DataFrame from DATABASE sheet with optional user filtering"""
     file_name = os.path.basename(file_path).lower()
     
+    # Read Excel without auto-parsing dates
     if file_name.endswith('.xlsb'):
         try:
-            df = pd.read_excel(file_path, sheet_name='DATABASE', engine='pyxlsb')
+            # First, read to get column names
+            df_temp = pd.read_excel(file_path, sheet_name='DATABASE', engine='pyxlsb', nrows=1)
+            date_columns = [col for col in df_temp.columns if any(kw in str(col).lower() for kw in ['week', 'month', 'date', 'tarih'])]
+            
+            # Now read the full file, keeping date columns as object type (strings)
+            dtype_dict = {col: object for col in date_columns}
+            df = pd.read_excel(file_path, sheet_name='DATABASE', engine='pyxlsb', dtype=dtype_dict, date_format=None)
         except:
             df = pd.read_excel(file_path, engine='pyxlsb')
     else:
         try:
-            df = pd.read_excel(file_path, sheet_name='DATABASE')
+            # First, read to get column names
+            df_temp = pd.read_excel(file_path, sheet_name='DATABASE', nrows=1)
+            date_columns = [col for col in df_temp.columns if any(kw in str(col).lower() for kw in ['week', 'month', 'date', 'tarih'])]
+            
+            # Now read the full file, keeping date columns as object type (strings)
+            dtype_dict = {col: object for col in date_columns}
+            df = pd.read_excel(file_path, sheet_name='DATABASE', dtype=dtype_dict, date_format=None)
         except:
             df = pd.read_excel(file_path)
     
@@ -1440,6 +1457,19 @@ def download_calculated_data():
         
         # Add calculated columns (KAR/ZARAR, BF KAR/ZARAR)
         df = add_calculated_columns(df)
+        
+        # Replace NaN and Inf values to prevent Excel export errors
+        # Replace NaN with empty string for object columns, 0 for numeric columns
+        import numpy as np
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                # Replace Inf and -Inf with 0
+                df[col] = df[col].replace([np.inf, -np.inf], 0)
+                # Replace NaN with 0
+                df[col] = df[col].fillna(0)
+            else:
+                # Replace NaN with empty string for text columns
+                df[col] = df[col].fillna('')
         
         # Create Excel file in memory
         from io import BytesIO
@@ -2196,8 +2226,7 @@ def get_input_fields():
             'Hourly Base Rate',
             'Hourly Additional Rates',
             'AP-CB /\nSubcon',
-            'AP-CB/Subcon',
-            'AP-CB / Subcon',
+            
             'LS/Unit Rate',
             'General Total\n Cost (USD)',
             'General Total Cost (USD)',
@@ -2329,6 +2358,20 @@ def upload_file():
         df = load_excel_data(filepath)
         print(f"Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
         
+        # Load reference sheets for formula calculations
+        print(f"Loading reference sheets (Info, Hourly Rates, Summary)...")
+        if load_excel_reference_data(filepath):
+            info_df = _excel_cache['info_df']
+            rates_df = _excel_cache['hourly_rates_df']
+            summary_df = _excel_cache['summary_df']
+            
+            # Fill empty cells with formulas BEFORE saving to database
+            print(f"Filling empty cells with formulas...")
+            df = fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df)
+            print(f"Empty cells filled successfully")
+        else:
+            print(f"Warning: Could not load reference sheets, skipping formula calculations")
+        
         # Save data to database permanently
         print(f"Saving data to database...")
         saved_count = 0
@@ -2355,10 +2398,15 @@ def upload_file():
                 elif 'PERSONEL' in row_dict and 'Name Surname' not in row_dict:
                     row_dict['Name Surname'] = row_dict['PERSONEL']
                 
-                # Convert any NaN values to empty strings
+                # Convert any NaN values to empty strings, and handle datetime/Timestamp objects
                 for key, value in row_dict.items():
                     if pd.isna(value):
                         row_dict[key] = ''
+                    elif isinstance(value, (pd.Timestamp, datetime)):
+                        # Convert datetime/Timestamp to string format to preserve the date
+                        row_dict[key] = value.strftime('%d/%b/%Y')
+                    elif hasattr(value, 'item'):  # numpy types
+                        row_dict[key] = value.item()
                 
                 # Debug: Check date format before saving to database
                 if '(Week / Month)' in row_dict:
@@ -2493,7 +2541,7 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
     # Find which column variations exist
     col_north_south = find_column(result_df, 'North/South', 'North/\nSouth', 'North/ South')
     col_currency = find_column(result_df, 'Currency')
-    col_ap_cb_subcon = find_column(result_df, 'AP-CB / \nSubcon')
+    col_ap_cb_subcon = find_column(result_df, 'AP-CB / \nSubcon', 'AP-CB/Subcon', 'AP-CB / Subcon', 'AP-CB/\nSubcon', 'APCB/Subcon')
     col_ls_unit_rate = find_column(result_df, 'LS/Unit Rate')
     col_hourly_base_rate = find_column(result_df, 'Hourly Base Rate')
     col_hourly_additional_rate = find_column(result_df, 'Hourly Additional Rates', 'Hourly Additional Rate')
@@ -2569,17 +2617,20 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         # ============================================================
         # FORMULA 3: AP-CB/Subcon = IF(ISNUMBER(SEARCH("AP-CB", E)), "AP-CB", "Subcon")
         # ============================================================
-       
         if col_ap_cb_subcon:
-           ap_cb_subcon = 'AP-CB' if 'AP-CB' in company.upper() else 'Subcon'
-           set_if_empty(result_df, idx, col_ap_cb_subcon, ap_cb_subcon)
-
-    # Get actual value (might not have been set if cell already had data)
-           ap_cb_subcon = result_df.at[idx, col_ap_cb_subcon]
-        else:
-    # If column doesn't exist, calculate anyway for use in other formulas
             ap_cb_subcon = 'AP-CB' if 'AP-CB' in company.upper() else 'Subcon'
-
+            if idx < 3:  # Debug first 3 rows
+                print(f"Row {idx}: Company='{company}', AP-CB/Subcon='{ap_cb_subcon}', Column='{col_ap_cb_subcon}'")
+            was_set = set_if_empty(result_df, idx, col_ap_cb_subcon, ap_cb_subcon)
+            if idx < 3:
+                print(f"  Was set: {was_set}, Final value: '{result_df.at[idx, col_ap_cb_subcon]}'")
+            # Get actual value (might not have been set if cell already had data)
+            ap_cb_subcon = result_df.at[idx, col_ap_cb_subcon]
+        else:
+            # If column doesn't exist, calculate anyway for use in other formulas
+            ap_cb_subcon = 'AP-CB' if 'AP-CB' in company.upper() else 'Subcon'
+            if idx < 3:
+                print(f"Row {idx}: AP-CB/Subcon column NOT FOUND! Using calculated value: '{ap_cb_subcon}'")
         
         # ============================================================
         # FORMULA 4: LS/Unit Rate
@@ -2656,6 +2707,13 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         # FORMULA 8: Cost = Q * K
         # ============================================================
         cost = hourly_rate * total_mh
+        
+        if idx < 3:  # Debug first 3 rows
+            print(f"\nRow {idx} Cost Calculation:")
+            print(f"  Hourly Rate: {hourly_rate}")
+            print(f"  TOTAL MH: {total_mh}")
+            print(f"  Cost: {cost}")
+        
         if col_cost:
             set_if_empty(result_df, idx, col_cost, cost)
             cost = safe_float(result_df.at[idx, col_cost])
@@ -2665,12 +2723,29 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         # ============================================================
         if currency == "TL":
             tcmb_rate = safe_float(xlookup(week_month, info_df.iloc[:, 20], info_df.iloc[:, 22], 1))
+            # Convert TL to USD by dividing by the exchange rate (TL/USD rate)
+            # Example: 1000 TL / 30 (rate) = 33.33 USD
             general_total_cost_usd = cost / tcmb_rate if tcmb_rate != 0 else 0
+            
+            if idx < 3:
+                print(f"  Currency: TL, Week/Month: {week_month}, TCMB Rate: {tcmb_rate}")
+                print(f"  General Total Cost USD: {general_total_cost_usd}")
+                
         elif currency == "EURO":
             tcmb_eur_usd = safe_float(xlookup(week_month, info_df.iloc[:, 20], info_df.iloc[:, 23], 1))
+            # Convert EUR to USD using EUR/USD rate
             general_total_cost_usd = cost * tcmb_eur_usd
+            
+            if idx < 3:
+                print(f"  Currency: EURO, EUR/USD Rate: {tcmb_eur_usd}")
+                print(f"  General Total Cost USD: {general_total_cost_usd}")
         else:
+            # Already in USD
             general_total_cost_usd = cost
+            
+            if idx < 3:
+                print(f"  Currency: USD (no conversion)")
+                print(f"  General Total Cost USD: {general_total_cost_usd}")
         
         if col_general_total_cost:
             set_if_empty(result_df, idx, col_general_total_cost, general_total_cost_usd)
