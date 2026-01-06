@@ -85,11 +85,11 @@ The system applies the following formulas to fill empty cells:
 15. **Control-1** - `=XLOOKUP(H,Info!O:O,Info!S:S)`
 16. **TM Liste** - `=IFERROR(XLOOKUP(A,Info!BG:BG,Info!BI:BI),"")`
 17. **TM KOD** - `=XLOOKUP(H,Info!O:O,Info!R:R)`
-18. **NO-1** - `=XLOOKUP($G,Info!$AU:$AU,Info!$AQ:$AQ,0)`
+18. **NO-1** - `=+XLOOKUP($G,Info!$N:$N,Info!$J:$J,0)`
 19. **NO-2** - `=XLOOKUP($G,Info!$N:$N,Info!$L:$L)`
 20. **NO-3** - `=XLOOKUP($G,Info!$N:$N,Info!$M:$M)`
 21. **NO-10** - `=XLOOKUP($AN,Info!$J:$J,Info!$K:$K)`
-22. **Kontrol-1** - `=XLOOKUP(H,Info!AV:AV,Info!AQ:AQ)`
+22. **Kontrol-1** - `=+XLOOKUP(H,Info!O:O,Info!J:J)`
 23. **Kontrol-2** - `=AN=AO` (Comparison check)
 
 ## Column References

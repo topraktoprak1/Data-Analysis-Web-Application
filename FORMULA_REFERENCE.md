@@ -359,8 +359,14 @@ Open both files in Excel:
 
 ### Currency Conversion Wrong
 - **Check**: Week/Month date format matches Info sheet
-- **Fix**: Use dd/mmm/yyyy format (01/Nov/2025)
-- **Verify**: TCMB rates exist for that date
+- **Fix**: Dates are automatically converted from Excel serial numbers to YYYY-MM-DD format
+- **Note**: Excel stores dates as serial numbers (e.g., 44927 = 2023-01-01). The system automatically converts these to readable format
+- **Verify**: TCMB rates exist for that date in Info sheet column W (index 22)
+
+### Week Numbers (W49, W50, etc.)
+- **Check**: Week numbers are preserved as-is during conversion
+- **Note**: Week numbers like "W49", "W50" are kept as strings and matched directly
+- **Verify**: Info sheet has corresponding TCMB rates for week numbers
 
 ### İşveren Calculations Zero
 - **Check**: NO-1, NO-2 values correct
@@ -369,14 +375,23 @@ Open both files in Excel:
 
 ---
 
-## Formula Performance
+## Date Handling
 
-All formulas are optimized for:
-- **Batch processing**: Entire column at once when possible
-- **Efficient lookups**: Uses pandas iloc for column access
-- **Minimal re-computation**: Values calculated once per row
-- **Smart defaults**: Returns sensible defaults on error
+### Excel Date Serial Numbers
+Excel stores dates as serial numbers counting days since January 1, 1900:
+- **Example**: 44927 = January 1, 2023
+- **Conversion**: Automatic during Info sheet loading
+- **Format**: Converted to YYYY-MM-DD strings (e.g., "2023-01-01")
+- **Week Numbers**: Preserved as-is (e.g., "W49", "W50")
 
+### Date Conversion Process
+1. Info sheet Weeks/Month column (U, index 20) is read as integers
+2. Each value is checked:
+   - If integer/float > 1000: Convert from Excel serial to YYYY-MM-DD
+   - If string (like "W49"): Keep as-is
+   - If datetime object: Convert to YYYY-MM-DD
+3. Week/Month values from DATABASE sheet are also converted before lookup
+4. Lookup matches converted values
 Average processing time:
 - ~0.1-0.2 seconds per row (includes all 23 formulas)
 - ~1-2 minutes for 1000 rows

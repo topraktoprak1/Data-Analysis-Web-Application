@@ -428,6 +428,13 @@ def load_excel_reference_data(file_path=None):
     try:
         # Read Info sheet
         df_info = pd.read_excel(file_path, sheet_name='Info', engine='pyxlsb')
+        
+        # Convert the Weeks/Month column (index 20) from Excel serial dates to readable format
+        if len(df_info.columns) > 20:
+            weeks_month_col = df_info.iloc[:, 20]
+            df_info.iloc[:, 20] = weeks_month_col.apply(excel_date_to_string)
+            print(f"[OK] Converted Info sheet Weeks/Month column to date strings")
+        
         _excel_cache['info_df'] = df_info
         
         # Read Hourly Rates sheet (header on row 2)
@@ -502,6 +509,39 @@ def safe_str(value, default=''):
     except:
         return default
 
+def excel_date_to_string(excel_date):
+    """Convert Excel serial date number to YYYY-MM-DD string format"""
+    try:
+        if pd.isna(excel_date):
+            return None
+        # Check if it's already a string (like 'W49', 'W50')
+        if isinstance(excel_date, str):
+            excel_date_str = excel_date.strip()
+            # Check if it's in dd/mmm/yyyy format (like "01/Jan/2023")
+            if '/' in excel_date_str:
+                try:
+                    # Try to parse it and convert to YYYY-MM-DD
+                    dt = pd.to_datetime(excel_date_str, format='%d/%b/%Y', errors='coerce')
+                    if pd.notna(dt):
+                        return dt.strftime('%Y-%m-%d')
+                except:
+                    pass
+            return excel_date_str
+        # Check if it's a datetime object
+        if isinstance(excel_date, (pd.Timestamp, datetime)):
+            return excel_date.strftime('%Y-%m-%d')
+        # Check if it's an Excel serial number (integer or float)
+        if isinstance(excel_date, (int, float)) and excel_date > 1000:
+            # Excel serial date starts from 1900-01-01
+            # Convert to pandas timestamp and then to string
+            base_date = pd.Timestamp('1899-12-30')  # Excel's epoch
+            date = base_date + pd.Timedelta(days=int(excel_date))
+            return date.strftime('%Y-%m-%d')
+        return str(excel_date).strip()
+    except Exception as e:
+        print(f"Error converting Excel date {excel_date}: {e}")
+        return str(excel_date) if excel_date else None
+
 def calculate_auto_fields(record_data, file_path=None):
     """
     Calculate all auto-populated fields based on Excel formulas
@@ -531,10 +571,25 @@ def calculate_auto_fields(record_data, file_path=None):
     discipline = safe_str(record_data.get('Discipline', ''))
     
     # Handle different variations of Week/Month field name
-    week_month = safe_str(record_data.get('(Week /\nMonth)', '') or 
-                         record_data.get('(Week / Month)', '') or 
-                         record_data.get('Week / Month', '') or
-                         record_data.get('Week/Month', ''))
+    week_month_raw = (record_data.get('(Week /\nMonth)', '') or 
+                     record_data.get('(Week / Month)', '') or 
+                     record_data.get('Week / Month', '') or
+                     record_data.get('Week/Month', ''))
+    
+    # Convert week_month to proper format (handle Excel serial dates)
+    week_month = excel_date_to_string(week_month_raw) if week_month_raw else ''
+    
+    # Debug: Print all possible Week/Month field variations to find the issue
+    print(f"DEBUG: Checking Week/Month field variations:")
+    print(f"  '(Week /\\nMonth)' = {record_data.get('(Week /\\nMonth)', 'NOT FOUND')}")
+    print(f"  '(Week / Month)' = {record_data.get('(Week / Month)', 'NOT FOUND')}")
+    print(f"  'Week / Month' = {record_data.get('Week / Month', 'NOT FOUND')}")
+    print(f"  'Week/Month' = {record_data.get('Week/Month', 'NOT FOUND')}")
+    print(f"  Raw week_month value = '{week_month_raw}' (type: {type(week_month_raw).__name__})")
+    print(f"  Converted week_month value = '{week_month}'")
+    
+    if not week_month:
+        print(f"WARNING: Week/Month field is empty! This will cause TCMB rate lookup to fail.")
     
     company = safe_str(record_data.get('Company', ''))
     projects_group = safe_str(record_data.get('Projects/Group', ''))
@@ -636,6 +691,14 @@ def calculate_auto_fields(record_data, file_path=None):
     # IF(P="TL",XLOOKUP($A,'Hourly Rates'!$A:$A,'Hourly Rates'!$L:$L)*(XLOOKUP($D,Info!$U:$U,Info!$W:$W)))))))
     
     print(f'DEBUG: Calculating Hourly Additional Rate - ls_unit_rate={ls_unit_rate}, company={company}, currency={currency}')
+    print(f'DEBUG: week_month for TCMB lookup = "{week_month}"')
+    
+    # Debug: Show what's in the Info sheet column U (index 20) for comparison
+    if not week_month:
+        print(f'ERROR: week_month is empty! Cannot lookup TCMB rate.')
+        print(f'  Available dates in Info sheet column U (first 10): {list(info_df.iloc[:10, 20])}')
+    else:
+        print(f'  Sample dates in Info sheet column U (first 10): {list(info_df.iloc[:10, 20])}')
     
     if ls_unit_rate == 'Lumpsum':
         hourly_additional_rate = 0
@@ -653,7 +716,9 @@ def calculate_auto_fields(record_data, file_path=None):
         elif currency == 'TL':
             # Get TCMB USD/TRY rate from Info sheet
             # $D = week_month, Info!$U:$U = column 20 (Weeks/Month), Info!$W:$W = column 22 (TCMB USD/TRY)
+            print(f'DEBUG: Looking up TCMB rate with week_month="{week_month}" in Info sheet column U (index 20)')
             tcmb_rate = safe_float(xlookup(week_month, info_df.iloc[:, 20], info_df.iloc[:, 22], 1))
+            print(f'DEBUG: TCMB rate found = {tcmb_rate}')
             hourly_additional_rate = additional_base * tcmb_rate
         else:
             hourly_additional_rate = 0
@@ -696,12 +761,12 @@ def calculate_auto_fields(record_data, file_path=None):
     record_data['Hourly Unit Rate (USD)'] = hourly_unit_rate_usd
     
     # Get NO-1, NO-2, NO-3, NO-10 values needed for İşveren calculations
-    # 14. NO-1 = XLOOKUP($G,Info!$AU:$AU,Info!$AQ:$AQ,0)
-    # Column AU = 46, Column AQ = 42
-    print(f'DEBUG NO-1: Looking up scope="{scope}" in column AU (46)')
-    print(f'DEBUG NO-1: Sample values in AU: {info_df.iloc[:5, 46].tolist()}')
-    print(f'DEBUG NO-1: Sample values in AQ: {info_df.iloc[:5, 42].tolist()}')
-    no_1 = xlookup(scope, info_df.iloc[:, 46], info_df.iloc[:, 42], 0)
+    # 14. NO-1 = XLOOKUP($G,Info!$N:$N,Info!$J:$J,0)
+    # Column N = 13, Column J = 9
+    print(f'DEBUG NO-1: Looking up scope="{scope}" in column N (13)')
+    print(f'DEBUG NO-1: Sample values in N: {info_df.iloc[:5, 13].tolist()}')
+    print(f'DEBUG NO-1: Sample values in J: {info_df.iloc[:5, 9].tolist()}')
+    no_1 = xlookup(scope, info_df.iloc[:, 13], info_df.iloc[:, 9], 0)
     record_data['NO-1'] = no_1
     print(f'DEBUG: NO-1 lookup - scope="{scope}", result={no_1}')
     
@@ -798,12 +863,12 @@ def calculate_auto_fields(record_data, file_path=None):
     record_data['TM Kod'] = tm_kod
     print(f'DEBUG: TM Kod lookup - projects={projects}, result={tm_kod}')
     
-    # 17. Kontrol-1 = XLOOKUP(H,Info!AV:AV,Info!AQ:AQ)
-    # H = Projects, Column AV = 47, Column AQ = 42
-    print(f'DEBUG Kontrol-1: Looking up projects="{projects}" in column AV (47)')
-    print(f'DEBUG Kontrol-1: Sample values in AV: {info_df.iloc[:5, 47].tolist()}')
-    print(f'DEBUG Kontrol-1: Sample values in AQ: {info_df.iloc[:5, 42].tolist()}')
-    kontrol_1 = xlookup(projects, info_df.iloc[:, 47], info_df.iloc[:, 42], '')
+    # 17. Kontrol-1 = XLOOKUP(H,Info!O:O,Info!J:J)
+    # H = Projects, Column O = 14, Column J = 9
+    print(f'DEBUG Kontrol-1: Looking up projects="{projects}" in column O (14)')
+    print(f'DEBUG Kontrol-1: Sample values in O: {info_df.iloc[:5, 14].tolist()}')
+    print(f'DEBUG Kontrol-1: Sample values in J: {info_df.iloc[:5, 9].tolist()}')
+    kontrol_1 = xlookup(projects, info_df.iloc[:, 14], info_df.iloc[:, 9], '')
     record_data['Konrol-1'] = kontrol_1
     print(f'DEBUG: Kontrol-1 lookup - projects="{projects}", result={kontrol_1}')
     
@@ -2579,10 +2644,13 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         projects = safe_str(row.get('Projects', ''))
         
         # Handle different variations of Week/Month field
-        week_month = safe_str(row.get('(Week / Month)', '') or 
-                             row.get('(Week /\nMonth)', '') or
-                             row.get('Week / Month', '') or
-                             row.get('Week/Month', ''))
+        week_month_raw = (row.get('(Week / Month)', '') or 
+                         row.get('(Week /\nMonth)', '') or
+                         row.get('Week / Month', '') or
+                         row.get('Week/Month', ''))
+        
+        # Convert week_month to proper format (handle Excel serial dates)
+        week_month = excel_date_to_string(week_month_raw) if week_month_raw else ''
         
         # Handle different variations of TOTAL MH field
         total_mh = safe_float(row.get('TOTAL MH', 0) or 
@@ -2669,42 +2737,57 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         
         if col_hourly_base_rate:
             set_if_empty(result_df, idx, col_hourly_base_rate, hourly_base_rate, debug=(idx==0))
-            hourly_base_rate = safe_float(result_df.at[idx, col_hourly_base_rate])
+            # Always use calculated hourly_base_rate for Hourly Rate formula
             
             if idx == 0:
                 print(f"  Final hourly_base_rate after set: {hourly_base_rate}\n")
         
         # ============================================================
         # FORMULA 6: Hourly Additional Rate
+        # Excel: =+IF($AT="Lumpsum",0,IF($E="AP-CB",0,IF($E="AP-CB / pergel",0,
+        #        IF(P="USD",XLOOKUP($A,'Hourly Rates'!$A:$A,'Hourly Rates'!$L:$L),
+        #        IF(P="TL",XLOOKUP($A,'Hourly Rates'!$A:$A,'Hourly Rates'!$L:$L)*(XLOOKUP($D,Info!$U:$U,Info!$W:$W)))))))
         # ============================================================
+        currency_normalized = safe_str(currency, 'USD').strip().upper()
+        
         if ls_unit_rate == 'Lumpsum':
             hourly_additional_rate = 0
         elif company == 'AP-CB' or company == 'AP-CB / pergel':
             hourly_additional_rate = 0
         else:
             additional_base = safe_float(xlookup(person_id, rates_df.iloc[:, 0], rates_df.iloc[:, 11], 0))
-            if currency == 'USD':
+            if currency_normalized == 'USD':
                 hourly_additional_rate = additional_base
-            elif currency == 'TL':
+            elif currency_normalized == 'TL':
                 tcmb_rate = safe_float(xlookup(week_month, info_df.iloc[:, 20], info_df.iloc[:, 22], 1))
                 hourly_additional_rate = additional_base * tcmb_rate
             else:
                 hourly_additional_rate = 0
         
+        if idx < 3:
+            print(f"\n=== DEBUG ROW {idx} - Hourly Additional Rate ===")
+            print(f"  ls_unit_rate: {ls_unit_rate}, company: {company}")
+            print(f"  currency_normalized: {currency_normalized}")
+            print(f"  additional_base: {additional_base}")
+            print(f"  hourly_additional_rate: {hourly_additional_rate}")
+        
         if col_hourly_additional_rate:
             set_if_empty(result_df, idx, col_hourly_additional_rate, hourly_additional_rate)
-            hourly_additional_rate = safe_float(result_df.at[idx, col_hourly_additional_rate])
+            # Always use calculated hourly_additional_rate for Hourly Rate formula
         
         # ============================================================
         # FORMULA 7: Hourly Rate = S + V
+        # NOTE: Always use the calculated value for downstream formulas,
+        # but only write to DataFrame if cell is empty
         # ============================================================
         hourly_rate = hourly_base_rate + hourly_additional_rate
         if col_hourly_rate:
             set_if_empty(result_df, idx, col_hourly_rate, hourly_rate)
-            hourly_rate = safe_float(result_df.at[idx, col_hourly_rate])
+            # Always use calculated hourly_rate for Cost formula (not the cell value)
         
         # ============================================================
         # FORMULA 8: Cost = Q * K
+        # NOTE: Cost must be calculated fresh from hourly_rate * total_mh
         # ============================================================
         cost = hourly_rate * total_mh
         
@@ -2716,22 +2799,29 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         
         if col_cost:
             set_if_empty(result_df, idx, col_cost, cost)
-            cost = safe_float(result_df.at[idx, col_cost])
+            # Always use calculated cost for General Total Cost formula
         
         # ============================================================
         # FORMULA 9: General Total Cost (USD)
         # ============================================================
-        if currency == "TL":
+        # Debug currency value
+        if idx < 3:
+            print(f"  DEBUG: currency='{currency}' (type={type(currency).__name__}, repr={repr(currency)})")
+        
+        # Normalize currency string (strip whitespace and convert to uppercase for comparison)
+        currency_normalized = safe_str(currency, 'USD').strip().upper()
+        
+        if currency_normalized == "TL":
             tcmb_rate = safe_float(xlookup(week_month, info_df.iloc[:, 20], info_df.iloc[:, 22], 1))
-            # Convert TL to USD by dividing by the exchange rate (TL/USD rate)
-            # Example: 1000 TL / 30 (rate) = 33.33 USD
+            # Convert TL to USD by dividing by the USD/TRY exchange rate
+            # Example: 292999.25 TL / 34.57 (USD/TRY) = 8475.67 USD
             general_total_cost_usd = cost / tcmb_rate if tcmb_rate != 0 else 0
             
             if idx < 3:
-                print(f"  Currency: TL, Week/Month: {week_month}, TCMB Rate: {tcmb_rate}")
-                print(f"  General Total Cost USD: {general_total_cost_usd}")
+                print(f"  Currency: TL, Week/Month: {week_month}, TCMB Rate (USD/TRY): {tcmb_rate}")
+                print(f"  Cost (TL): {cost}, General Total Cost USD: {general_total_cost_usd}")
                 
-        elif currency == "EURO":
+        elif currency_normalized == "EURO":
             tcmb_eur_usd = safe_float(xlookup(week_month, info_df.iloc[:, 20], info_df.iloc[:, 23], 1))
             # Convert EUR to USD using EUR/USD rate
             general_total_cost_usd = cost * tcmb_eur_usd
@@ -2740,16 +2830,16 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
                 print(f"  Currency: EURO, EUR/USD Rate: {tcmb_eur_usd}")
                 print(f"  General Total Cost USD: {general_total_cost_usd}")
         else:
-            # Already in USD
+            # Already in USD or unknown currency
             general_total_cost_usd = cost
             
             if idx < 3:
-                print(f"  Currency: USD (no conversion)")
+                print(f"  Currency: {currency_normalized} (treating as USD, no conversion)")
                 print(f"  General Total Cost USD: {general_total_cost_usd}")
         
         if col_general_total_cost:
             set_if_empty(result_df, idx, col_general_total_cost, general_total_cost_usd)
-            general_total_cost_usd = safe_float(result_df.at[idx, col_general_total_cost])
+            # Always use calculated general_total_cost_usd for downstream formulas
 
         
         # ============================================================
@@ -2758,20 +2848,21 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         hourly_unit_rate_usd = general_total_cost_usd / total_mh if total_mh != 0 else 0
         if col_hourly_unit_rate_usd:
             set_if_empty(result_df, idx, col_hourly_unit_rate_usd, hourly_unit_rate_usd)
-            hourly_unit_rate_usd = 0
+            # Always use calculated hourly_unit_rate_usd for downstream formulas
         
         # ============================================================
         # Get NO-1, NO-2, NO-3, NO-10 for İşveren calculations
+        # NOTE: Always use calculated values for İşveren calculations
         # ============================================================
-        no_1 = xlookup(scope, info_df.iloc[:, 46], info_df.iloc[:, 42], 0)
+        no_1 = xlookup(scope, info_df.iloc[:, 13], info_df.iloc[:, 9], 0)
         if col_no_1:
             set_if_empty(result_df, idx, col_no_1, no_1)
-            no_1 = result_df.at[idx, col_no_1]
+            # Always use calculated no_1 for İşveren formulas
         
         no_2 = xlookup(scope, info_df.iloc[:, 13], info_df.iloc[:, 11], '')
         if col_no_2:
             set_if_empty(result_df, idx, col_no_2, no_2)
-            no_2 = result_df.at[idx, col_no_2]
+            # Always use calculated no_2 for İşveren formulas
         
         no_3 = xlookup(scope, info_df.iloc[:, 13], info_df.iloc[:, 12], '')
         
@@ -2790,12 +2881,12 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
             if no_3 == '' and result_df[col_no_3].dtype in ['float64', 'int64']:
                 no_3 = 0  # or use np.nan if you want NaN
             set_if_empty(result_df, idx, col_no_3, no_3)
-            no_3 = result_df.at[idx, col_no_3]  # Read back the actual value
+            # Always use calculated no_3
         
         no_10 = xlookup(no_1, info_df.iloc[:, 9], info_df.iloc[:, 10], '')
         if col_no_10:
             set_if_empty(result_df, idx, col_no_10, no_10)
-            no_10 = result_df.at[idx, col_no_10]  # Read back the actual value
+            # Always use calculated no_10
         
         # ============================================================
         # FORMULA 11: İşveren Hakediş Birim Fiyat
@@ -2819,7 +2910,7 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         
         if col_isveren_birim_fiyat:
             set_if_empty(result_df, idx, col_isveren_birim_fiyat, isveren_hakedis_birim_fiyat)
-            isveren_hakedis_birim_fiyat = safe_float(result_df.at[idx, col_isveren_birim_fiyat])
+            # Always use calculated isveren_hakedis_birim_fiyat for downstream formulas
         
         # ============================================================
         # FORMULA 12: İşveren-Hakediş
@@ -2831,7 +2922,7 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         
         if col_isveren_hakedis:
             set_if_empty(result_df, idx, col_isveren_hakedis, isveren_hakedis)
-            isveren_hakedis = safe_float(result_df.at[idx, col_isveren_hakedis])
+            # Always use calculated isveren_hakedis for downstream formulas
         
         # ============================================================
         # FORMULA 13: İşveren Hakediş (USD)
@@ -2844,7 +2935,7 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         
         if col_isveren_hakedis_usd:
             set_if_empty(result_df, idx, col_isveren_hakedis_usd, isveren_hakedis_usd)
-            isveren_hakedis_usd = safe_float(result_df.at[idx, col_isveren_hakedis_usd])
+            # Always use calculated isveren_hakedis_usd for downstream formulas
         
         # ============================================================
         # FORMULA 14: İşveren Hakediş Birim Fiyatı (USD)
@@ -2884,7 +2975,7 @@ def fill_empty_cells_with_formulas(df, info_df, rates_df, summary_df):
         # FORMULA 18: Kontrol-1
         # ============================================================
         if col_kontrol_1:
-            kontrol_1 = xlookup(projects, info_df.iloc[:, 47], info_df.iloc[:, 42], '')
+            kontrol_1 = xlookup(projects, info_df.iloc[:, 14], info_df.iloc[:, 9], '')
             set_if_empty(result_df, idx, col_kontrol_1, kontrol_1)
         
         # ============================================================
