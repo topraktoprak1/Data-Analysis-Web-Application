@@ -140,13 +140,12 @@ def get_data():
 def get_stats():
     records = DatabaseRecord.query.order_by(DatabaseRecord.id.desc()).all()
     data = [json.loads(r.data) for r in records]
-    def normalize(val):
-        return str(val).replace('\n', ' ').replace('\r', ' ').replace('-', ' ').strip().lower()
-    apcb_keywords = ['ap cb', 'apcb', 'ap-cb']
-    subcon_keywords = ['subcon', 'sub con', 'sub-con']
+    
+    apcb_keywords = ['AP-CB']
+    subcon_keywords = ['Subcon']
 
-    apcb = 12450
-    subcon = 8038
+    apcb = sum(1 for r in data if any(kw in r.get('AP-CB / Subcon', '') for kw in apcb_keywords))
+    subcon = sum(1 for r in data if any(kw in r.get('AP-CB / Subcon', '') for kw in subcon_keywords))
     return jsonify({"apcb": apcb, "subcon": subcon})
 
 @app.route('/api/auto-calculated-fields')
