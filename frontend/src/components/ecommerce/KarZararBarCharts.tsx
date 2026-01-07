@@ -81,9 +81,10 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
     <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <h3 className="mb-4 text-sm font-semibold text-gray-800 dark:text-white/90">{title}</h3>
       
-      <svg width={chartWidth} height={chartHeight} className="overflow-visible">
-        {/* Y-axis grid lines and labels */}
-        {[0, 1, 2, 3, 4].map(i => {
+      <div className="relative">
+        <svg width={chartWidth} height={chartHeight}>
+          {/* Y-axis grid lines and labels */}
+          {[0, 1, 2, 3, 4].map(i => {
           const y = (i / 4) * plotHeight;
           const value = yMax - (i / 4) * yRange;
           return (
@@ -156,27 +157,28 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
           );
         })}
 
-        {/* Tooltip */}
+        </svg>
+
+        {/* Tooltip - positioned outside SVG to prevent clipping */}
         {hoveredIndex !== null && (
-          <g>
-            <foreignObject
-              x={padding.left + hoveredIndex * barSpacing}
-              y={padding.top - 40}
-              width="150"
-              height="40"
-            >
-              <div className="rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-lg dark:border-gray-700 dark:bg-gray-800">
-                <div className="text-xs font-medium text-gray-900 dark:text-white">
-                  {data[hoveredIndex].name}
-                </div>
-                <div className={`text-sm font-bold ${data[hoveredIndex].value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {formatValue(data[hoveredIndex].value)}
-                </div>
-              </div>
-            </foreignObject>
-          </g>
+          <div
+            className="pointer-events-none absolute rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-lg dark:border-gray-700 dark:bg-gray-800"
+            style={{
+              left: `${padding.left + hoveredIndex * barSpacing + barWidth / 2}px`,
+              top: `${Math.max(10, padding.top + yScale(data[hoveredIndex].value) - 50)}px`,
+              transform: 'translateX(-50%)',
+              zIndex: 50,
+            }}
+          >
+            <div className="text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
+              {data[hoveredIndex].name}
+            </div>
+            <div className={`text-sm font-bold ${data[hoveredIndex].value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              {formatValue(data[hoveredIndex].value)}
+            </div>
+          </div>
         )}
-      </svg>
+      </div>
     </div>
   );
 };
