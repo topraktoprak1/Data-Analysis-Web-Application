@@ -7,7 +7,7 @@ import {
 import Badge from "../ui/badge/Badge";
 import { GiProfit } from "react-icons/gi";
 import DropzoneComponent from "../form/form-elements/DropZone";
-import PieChart from "./PieChart";
+
 
 export default function EcommerceMetrics() {
   const [data, setData] = useState<{

@@ -55,39 +55,43 @@ export default function CompanyTable() {
     return (
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-5 pt-5 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 sm:pt-6">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90 mb-2">Company Table</h3>
-            <div className="mt-4">
-                {loading && <div className="text-base font-semibold text-gray-500 dark:text-gray-300">Loading...</div>}
-                {error && <div className="text-base font-semibold text-red-500 dark:text-red-400">{error}</div>}
-                {!loading && !error && (
-                    <div style={{ maxHeight: 500, overflowY: 'auto' }}>
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead>
-                                <tr>
-                                    <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-white">Company</th>
-                                    <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-white">KAR-ZARAR</th>
-                                    <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-white">TOTAL MH</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-white/[0.03]">
-                                {rows.map((row, idx) => (
-                                    <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
-                                        <td className="px-4 py-2 text-gray-800 dark:text-white">{row.Company}</td>
-                                        <td className="px-4 py-2 text-gray-800 dark:text-white">{row.KAR_ZARAR}</td>
-                                        <td className="px-4 py-2 text-gray-800 dark:text-white">{row.TOTAL_MH}</td>
+            <div className="mt-4 flex flex-col lg:flex-row gap-6">
+                {/* Table Section */}
+                <div className="flex-1">
+                    {loading && <div className="text-base font-semibold text-gray-500 dark:text-gray-300">Loading...</div>}
+                    {error && <div className="text-base font-semibold text-red-500 dark:text-red-400">{error}</div>}
+                    {!loading && !error && (
+                        <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead>
+                                    <tr>
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-white">Company</th>
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-white">KAR-ZARAR</th>
+                                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-white">TOTAL MH</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-         <div className="mt-8">
-                <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-4">Şirkete Göre Pasta Grafiği (Çalışan Dağılımı)</h4>
-                <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-4">
-                    <PieChart />
+                                </thead>
+                                <tbody className="bg-white dark:bg-white/[0.03]">
+                                    {rows.map((row, idx) => (
+                                        <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
+                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.Company}</td>
+                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.KAR_ZARAR}</td>
+                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.TOTAL_MH}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
-          </div>
-            
+
+                {/* Pie Chart Section */}
+                <div className="lg:w-80 flex-shrink-0">
+                    <h4 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Şirkete Göre Çalışan Dağılımı</h4>
+                    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-3">
+                        <PieChart />
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }

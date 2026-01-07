@@ -4670,6 +4670,579 @@ def get_pie_chart_data():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/filter-options')
+def get_filter_options():
+    """Get all unique values for filter options, filtered by current selections (cascading filters)"""
+    try:
+        # Get current filters from query params
+        filters_json = request.args.get('filters', '{}')
+        current_filters = json.loads(filters_json)
+        
+        # Cache for 30 seconds if no filters applied
+        cache_time = 30 if not any(current_filters.values()) else 0
+        
+        records = DatabaseRecord.query.all()
+        if not records:
+            print("[FILTER OPTIONS] No records found")
+            return jsonify({})
+        
+        print(f"[FILTER OPTIONS] Processing {len(records)} records with filters: {current_filters}")
+        data = [json.loads(r.data) for r in records]
+        
+        # Check sample record structure
+        if data:
+            print(f"[FILTER OPTIONS] Sample record keys: {list(data[0].keys())[:10]}")
+        
+        # Helper function to get field value with fallback
+        def get_field_value(record, *possible_names):
+            for name in possible_names:
+                if name in record:
+                    return str(record.get(name, '')).strip()
+            return ''
+        
+        # Apply current filters to get relevant records
+        filtered_data = []
+        filter_mapping = {
+            'nameSurname': ['Name Surname', 'nameSurname', 'Name-Surname'],
+            'discipline': ['Discipline', 'discipline'],
+            'company': ['Company', 'company'],
+            'projectsGroup': ['Projects/Group', 'projectsGroup', 'Projects-Group'],
+            'scope': ['Scope', 'scope'],
+            'projects': ['Projects', 'projects'],
+            'nationality': ['Nationality', 'nationality'],
+            'status': ['Status', 'status'],
+            'northSouth': ['North/South', 'northSouth', 'North-South'],
+            'control1': ['Control-1', 'control1', 'Control1'],
+            'no1': ['NO-1', 'no1', 'NO1'],
+            'no2': ['NO-2', 'no2', 'NO2'],
+            'no3': ['NO-3', 'no3', 'NO3'],
+            'no10': ['NO-10', 'no10', 'NO10'],
+            'kontrol1': ['Kontrol-1', 'kontrol1', 'Kontrol1'],
+            'kontrol2': ['Kontrol-2', 'kontrol2', 'Kontrol2'],
+            'lsUnitRate': ['LS/Unit Rate', 'lsUnitRate', 'LS-Unit-Rate'],
+        }
+        
+        for record in data:
+            passes_filters = True
+            
+            # Check each currently applied filter
+            for filter_key, field_names in filter_mapping.items():
+                filter_values = current_filters.get(filter_key, [])
+                if filter_values and len(filter_values) > 0:
+                    record_value = get_field_value(record, *field_names)
+                    # Exact match comparison (case-insensitive, trimmed)
+                    if record_value:
+                        try:
+                            normalized_record_value = str(record_value).strip().upper()
+                            normalized_filter_values = [str(v).strip().upper() for v in filter_values if v]
+                            if normalized_record_value not in normalized_filter_values:
+                                passes_filters = False
+                                break
+                        except Exception as e:
+                            print(f"[FILTER OPTIONS] Error normalizing values for {filter_key}: {e}")
+                            if record_value not in filter_values:
+                                passes_filters = False
+                                break
+            
+            if passes_filters:
+                filtered_data.append(record)
+        
+        print(f"[FILTER OPTIONS] After applying current filters: {len(filtered_data)} records")
+        
+        # Extract unique values for each filter from filtered records
+        def get_unique_options(*field_names):
+            values = set()
+            for record in filtered_data:
+                # Try each possible field name
+                value = None
+                for field_name in field_names:
+                    if field_name in record:
+                        value = record.get(field_name)
+                        break
+                
+                if value and str(value).strip() not in ('', 'nan', 'None', 'NaT'):
+                    values.add(str(value).strip())
+            
+            result = [{'label': v, 'value': v} for v in sorted(values)]
+            print(f"[FILTER OPTIONS] {field_names[0]}: {len(result)} unique values - {result[:3] if result else 'EMPTY'}")
+            return result
+        
+        filter_options = {
+            'nameSurname': get_unique_options('Name Surname', 'nameSurname', 'Name-Surname'),
+            'discipline': get_unique_options('Discipline', 'discipline'),
+            'company': get_unique_options('Company', 'company'),
+            'projectsGroup': get_unique_options('Projects/Group', 'projectsGroup', 'Projects-Group'),
+            'scope': get_unique_options('Scope', 'scope'),
+            'projects': get_unique_options('Projects', 'projects'),
+            'nationality': get_unique_options('Nationality', 'nationality'),
+            'status': get_unique_options('Status', 'status'),
+            'northSouth': get_unique_options('North/\nSouth', 'northSouth', 'North-South',"North/ South"),
+            'control1': get_unique_options('Control-1', 'control1', 'Control1'),
+            'no1': get_unique_options('NO-1', 'no1', 'NO1'),
+            'no2': get_unique_options('NO-2', 'no2', 'NO2'),
+            'no3': get_unique_options('NO-3', 'no3', 'NO3'),
+            'no10': get_unique_options('NO-10', 'no10', 'NO10'),
+            'kontrol1': get_unique_options('Konrol-1', 'kontrol1', 'Kontrol1'),
+            'kontrol2': get_unique_options('Knrtol-2', 'kontrol2', 'Kontrol2'),
+            'lsUnitRate': get_unique_options('LS/Unit Rate', 'lsUnitRate', 'LS-Unit-Rate'),
+        }
+        
+        print(f"[FILTER OPTIONS] Returning cascading filter options")
+        response = jsonify(filter_options)
+        if cache_time > 0:
+            response.headers['Cache-Control'] = f'public, max-age={cache_time}'
+        return response
+    except Exception as e:
+        print(f"[FILTER OPTIONS] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mh-table-data')
+def get_mh_table_data():
+    """Get filtered MH table data"""
+    try:
+        year = request.args.get('year', type=str)
+        month = request.args.get('month', type=str)
+        filters_json = request.args.get('filters', '{}')
+        filters = json.loads(filters_json)
+        
+        # Handle empty strings
+        if year == '':
+            year = None
+        if month == '':
+            month = None
+        
+        print(f"[MH TABLE] Fetching data - Year: {year}, Month: {month}")
+        print(f"[MH TABLE] Filters: {filters}")
+        
+        records = DatabaseRecord.query.all()
+        if not records:
+            print("[MH TABLE] No records found in database")
+            return jsonify({'data': []})
+        
+        print(f"[MH TABLE] Found {len(records)} total records")
+        data = [json.loads(r.data) for r in records]
+        
+        # Check the structure of first record
+        if data:
+            print(f"[MH TABLE] Sample record keys: {list(data[0].keys())[:10]}")
+        
+        # Apply filters - check both camelCase and space-separated formats
+        filtered_data = []
+        for record in data:
+            passes_filters = True
+            
+            # Helper function to get field value with fallback
+            def get_field_value(record, *possible_names):
+                for name in possible_names:
+                    if name in record:
+                        return str(record.get(name, '')).strip()
+                return ''
+            
+            # Check each filter with multiple possible field names
+            filter_checks = [
+                ('nameSurname', ['Name Surname', 'nameSurname', 'Name-Surname']),
+                ('discipline', ['Discipline', 'discipline']),
+                ('company', ['Company', 'company']),
+                ('projectsGroup', ['Projects/Group', 'projectsGroup', 'Projects-Group']),
+                ('scope', ['Scope', 'scope']),
+                ('projects', ['Projects', 'projects']),
+                ('nationality', ['Nationality', 'nationality']),
+                ('status', ['Status', 'status']),
+                ('northSouth', ['North/South', 'northSouth', 'North-South']),
+                ('control1', ['Control-1', 'control1', 'Control1']),
+                ('no1', ['NO-1', 'no1', 'NO1']),
+                ('no2', ['NO-2', 'no2', 'NO2']),
+                ('no3', ['NO-3', 'no3', 'NO3']),
+                ('no10', ['NO-10', 'no10', 'NO10']),
+                ('kontrol1', ['Kontrol-1', 'kontrol1', 'Kontrol1']),
+                ('kontrol2', ['Kontrol-2', 'kontrol2', 'Kontrol2']),
+                ('lsUnitRate', ['LS/Unit Rate', 'lsUnitRate', 'LS-Unit-Rate']),
+            ]
+            
+            for filter_key, field_names in filter_checks:
+                filter_values = filters.get(filter_key, [])
+                if filter_values and len(filter_values) > 0:
+                    record_value = get_field_value(record, *field_names)
+                    # Exact match comparison (case-insensitive, trimmed)
+                    if record_value:
+                        try:
+                            # Normalize both sides for comparison
+                            normalized_record_value = str(record_value).strip().upper()
+                            normalized_filter_values = [str(v).strip().upper() for v in filter_values if v]
+                            if normalized_record_value not in normalized_filter_values:
+                                passes_filters = False
+                                break
+                        except Exception as e:
+                            print(f"[MH TABLE] Error normalizing values for {filter_key}: {e}")
+                            # Fall back to simple string comparison
+                            if record_value not in filter_values:
+                                passes_filters = False
+                                break
+            
+            if passes_filters:
+                filtered_data.append(record)
+        
+        print(f"[MH TABLE] After filtering: {len(filtered_data)} records")
+        
+        # Extract month/year from date field
+        def extract_month_year(date_str):
+            """Extract month and year from various date formats"""
+            if not date_str or str(date_str).strip() in ('', 'nan', 'None', 'NaT'):
+                return None, None
+            
+            try:
+                # Try different date formats
+                for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y"):
+                    try:
+                        dt = datetime.strptime(str(date_str)[:19], fmt)
+                        return dt.month, dt.year
+                    except:
+                        continue
+                
+                # Try pandas to_datetime as fallback
+                try:
+                    dt = pd.to_datetime(date_str)
+                    if pd.notna(dt):
+                        return dt.month, dt.year
+                except:
+                    pass
+            except Exception as e:
+                print(f"[MH TABLE] Date parse error for '{date_str}': {e}")
+            
+            return None, None
+        
+        # Process records - aggregate by person and handle both week/month records and already-aggregated records
+        person_data = {}
+        
+        for record in filtered_data:
+            # Get name with fallback
+            name = (record.get('Name Surname') or record.get('nameSurname') or 
+                   record.get('Name-Surname') or 'Unknown')
+            
+            # Get TOTAL MH - try different field names
+            total_mh = safe_float(record.get('TOTAL MH') or record.get('totalMH') or 
+                                 record.get('Total MH') or 0)
+            
+            # Get date field
+            date_str = (record.get('(Week / Month)') or record.get('Week / Month') or 
+                       record.get('Tarih') or record.get('Date') or record.get('date'))
+            
+            rec_month, rec_year = extract_month_year(date_str)
+            
+            # Filter by year if specified (only if year is not None/empty)
+            if year and rec_year and str(rec_year) != year:
+                continue
+            
+            # Initialize person entry if not exists
+            if name not in person_data:
+                person_data[name] = {
+                    'nameSurname': name,
+                    'discipline': record.get('Discipline') or record.get('discipline') or '',
+                    'company': record.get('Company') or record.get('company') or '',
+                    'projectsGroup': record.get('Projects/Group') or record.get('projectsGroup') or '',
+                    'monthlyMH': {},
+                    'totalMH': 0
+                }
+            
+            # Add to monthly totals if we have valid month/year
+            if rec_month and rec_year:
+                # If year filter is set, only include data from that year
+                if not year or str(rec_year) == year:
+                    month_key = str(rec_month).zfill(2)
+                    # Apply month filter if specified
+                    if not month or month_key == month:
+                        person_data[name]['monthlyMH'][month_key] = \
+                            person_data[name]['monthlyMH'].get(month_key, 0) + total_mh
+                        person_data[name]['totalMH'] += total_mh
+            else:
+                # If no date info, just add to total (for year agnostic data)
+                if not year and not month:  # Only if no filters are set
+                    person_data[name]['totalMH'] += total_mh
+        
+        # Convert to list
+        result = list(person_data.values())
+        print(f"[MH TABLE] Returning {len(result)} aggregated person records")
+        
+        return jsonify({'data': result})
+    except Exception as e:
+        print(f"[MH TABLE] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/kar-zarar-trends')
+def get_kar_zarar_trends():
+    """Get KAR-ZARAR trends grouped by different dimensions"""
+    try:
+        dimension = request.args.get('dimension', 'nameSurname')  # nameSurname, discipline, projectsGroup, scope, projects
+        year = request.args.get('year', '')
+        
+        records = DatabaseRecord.query.all()
+        if not records:
+            return jsonify({'data': []})
+        
+        data = [json.loads(r.data) for r in records]
+        
+        print(f"[KAR-ZARAR TRENDS] Processing {len(data)} records for dimension: {dimension}")
+        
+        # Helper function to get field value
+        def get_field_value(record, *possible_names):
+            for name in possible_names:
+                if name in record:
+                    val = record.get(name)
+                    if val and str(val).strip() not in ('', 'nan', 'None', 'NaT'):
+                        return str(val).strip()
+            return None
+        
+        # Helper to get numeric value
+        def get_numeric_value(record, *possible_names):
+            for name in possible_names:
+                if name in record:
+                    try:
+                        val = record[name]
+                        if val and str(val).strip() not in ('', 'nan', 'None', 'NaT'):
+                            return float(val)
+                    except (ValueError, TypeError):
+                        pass
+            return None
+        
+        # Map dimension to field names
+        field_mapping = {
+            'nameSurname': ['Name Surname', 'nameSurname', 'Name-Surname'],
+            'discipline': ['Discipline', 'discipline'],
+            'projectsGroup': ['Projects/Group', 'projectsGroup', 'Projects-Group'],
+            'scope': ['Scope', 'scope'],
+            'projects': ['Projects', 'projects'],
+            'company': ['Company', 'company', 'Firma', 'Şirket'],
+            'northSouth': ['North/South', 'North/ South', 'North/\nSouth', 'northSouth', 'Kuzey/Güney'],
+            'lsUnitRate': ['LS/Unit Rate', 'lsUnitRate', 'LS-Unit-Rate', 'LS / Unit Rate'],
+        }
+        
+        field_names = field_mapping.get(dimension, field_mapping['nameSurname'])
+        
+        # Aggregate data by dimension and month
+        dimension_data = {}
+        records_processed = 0
+        
+        for record in data:
+            # Get dimension value
+            dim_value = get_field_value(record, *field_names)
+            if not dim_value:
+                continue
+            
+            # Calculate KAR-ZARAR (Profit/Loss) from available fields
+            # Same calculation as StatisticsChart: İşveren- Hakediş (USD) - General Total Cost (USD)
+            actual_value = get_numeric_value(record, 'İşveren- Hakediş (USD)', 'İşveren- Hakediş')
+            cost = get_numeric_value(record, 'General Total Cost (USD)')
+            
+            # If both are None, skip the record
+            if actual_value is None and cost is None:
+                continue
+            
+            # Treat None as 0 for the calculation
+            kar_zarar = (actual_value if actual_value is not None else 0) - (cost if cost is not None else 0) 
+            
+            # Get date
+            date_value = get_field_value(record, '(Week / Month)', 'Date', 'date', 'Tarih', 'tarih')
+            
+            if not date_value:
+                continue
+            
+            # Parse date to get year and month
+            try:
+                import re
+                from datetime import datetime
+                date_str = str(date_value).strip()
+                
+                rec_year = None
+                rec_month = None
+                
+                # Try to parse date with various formats
+                # Format: "01/Sep/2023", "2025-11", "2025-W46", etc.
+                try:
+                    # Try parsing with datetime
+                    for fmt in ['%d/%b/%Y', '%d/%B/%Y', '%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y']:
+                        try:
+                            dt = datetime.strptime(date_str, fmt)
+                            rec_year = dt.year
+                            rec_month = dt.month
+                            break
+                        except ValueError:
+                            continue
+                except:
+                    pass
+                
+                # If datetime parsing failed, try regex
+                if not rec_year:
+                    year_match = re.search(r'(\d{4})', date_str)
+                    if year_match:
+                        rec_year = int(year_match.group(1))
+                        
+                        # Try to find month number
+                        month_match = re.search(r'[-/\s](\d{1,2})[-/\s]', date_str)
+                        if month_match:
+                            rec_month = int(month_match.group(1))
+                        else:
+                            # Try week format (W##) - convert to approximate month
+                            week_match = re.search(r'[Ww](\d{1,2})', date_str)
+                            if week_match:
+                                week_num = int(week_match.group(1))
+                                rec_month = min(12, max(1, (week_num * 12) // 52))
+                
+                if not rec_year or not rec_month or rec_month < 1 or rec_month > 12:
+                    continue
+                
+                # Apply year filter
+                if year and str(rec_year) != year:
+                    continue
+                
+                # Initialize dimension entry
+                if dim_value not in dimension_data:
+                    dimension_data[dim_value] = {}
+                
+                # Add to monthly totals
+                month_key = f"{rec_year}-{str(rec_month).zfill(2)}"
+                if month_key not in dimension_data[dim_value]:
+                    dimension_data[dim_value][month_key] = 0
+                
+                dimension_data[dim_value][month_key] += kar_zarar
+                records_processed += 1
+                
+            except Exception as e:
+                print(f"[KAR-ZARAR TRENDS] Error parsing record: {e}")
+                continue
+        
+        print(f"[KAR-ZARAR TRENDS] Processed {records_processed} records with valid KAR-ZARAR data")
+        
+        # Convert to chart format
+        result = []
+        for dim_value, monthly_data in dimension_data.items():
+            if not monthly_data:
+                continue
+            sorted_months = sorted(monthly_data.keys())
+            result.append({
+                'name': dim_value,
+                'data': [{'month': month, 'value': monthly_data[month]} for month in sorted_months]
+            })
+        
+        # Sort by total KAR-ZARAR descending
+        result.sort(key=lambda x: sum(d['value'] for d in x['data']), reverse=True)
+        
+        print(f"[KAR-ZARAR TRENDS] Returning {len(result)} series for dimension: {dimension}")
+        return jsonify({'data': result})
+        
+    except Exception as e:
+        print(f"[KAR-ZARAR TRENDS] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/total-mh-pie')
+def get_total_mh_pie():
+    """Get TOTAL MH aggregated by different dimensions for pie charts"""
+    try:
+        dimension = request.args.get('dimension', 'projects')
+        year = request.args.get('year', '')
+        
+        records = DatabaseRecord.query.all()
+        if not records:
+            return jsonify({'data': []})
+        
+        data = [json.loads(r.data) for r in records]
+        
+        print(f"[TOTAL MH PIE] Processing {len(data)} records for dimension: {dimension}")
+        
+        # Helper function to get field value
+        def get_field_value(record, *possible_names):
+            for name in possible_names:
+                if name in record:
+                    val = record.get(name)
+                    if val and str(val).strip() not in ('', 'nan', 'None', 'NaT'):
+                        return str(val).strip()
+            return None
+        
+        # Helper to get numeric value
+        def get_numeric_value(record, *possible_names):
+            for name in possible_names:
+                if name in record:
+                    try:
+                        val = record[name]
+                        if val and str(val).strip() not in ('', 'nan', 'None', 'NaT'):
+                            return float(val)
+                    except (ValueError, TypeError):
+                        pass
+            return None
+        
+        # Map dimension to field names
+        field_mapping = {
+            'projects': ['Projects', 'projects'],
+            'company': ['Company', 'company', 'Firma', 'Şirket'],
+            'discipline': ['Discipline', 'discipline'],
+            'northSouth': ['North/South', 'North/ South', 'North/\nSouth', 'northSouth', 'Kuzey/Güney'],
+            'lsUnitRate': ['LS/Unit Rate', 'lsUnitRate', 'LS-Unit-Rate', 'LS / Unit Rate'],
+            'apcbSubcon': ['AP-CB / \nSubcon', 'AP-CB/Subcon', 'AP-CB / Subcon', 'AP-CB/\nSubcon', 'APCB/Subcon'],
+        }
+        
+        field_names = field_mapping.get(dimension, field_mapping['projects'])
+        
+        # Aggregate TOTAL MH by dimension
+        dimension_totals = {}
+        
+        for record in data:
+            # Get dimension value
+            dim_value = get_field_value(record, *field_names)
+            if not dim_value:
+                continue
+            
+            # Get TOTAL MH value
+            total_mh = get_numeric_value(record, 'TOTAL MH', 'TOTAL\n MH', 'Total MH')
+            if total_mh is None or total_mh <= 0:
+                continue
+            
+            # Apply year filter if specified
+            if year:
+                date_value = get_field_value(record, '(Week / Month)', 'Date', 'date', 'Tarih', 'tarih')
+                if date_value:
+                    import re
+                    year_match = re.search(r'(\d{4})', str(date_value))
+                    if year_match and year_match.group(1) != year:
+                        continue
+            
+            # Add to totals
+            if dim_value not in dimension_totals:
+                dimension_totals[dim_value] = 0
+            dimension_totals[dim_value] += total_mh
+        
+        # Convert to list and calculate percentages
+        total_mh_sum = sum(dimension_totals.values())
+        result = []
+        
+        for dim_value, mh_value in dimension_totals.items():
+            percentage = (mh_value / total_mh_sum * 100) if total_mh_sum > 0 else 0
+            result.append({
+                'name': dim_value,
+                'value': mh_value,
+                'percentage': percentage
+            })
+        
+        # Sort by value descending
+        result.sort(key=lambda x: x['value'], reverse=True)
+        
+        print(f"[TOTAL MH PIE] Returning {len(result)} items for dimension: {dimension}")
+        return jsonify({'data': result})
+        
+    except Exception as e:
+        print(f"[TOTAL MH PIE] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     with app.app_context():
         init_db()

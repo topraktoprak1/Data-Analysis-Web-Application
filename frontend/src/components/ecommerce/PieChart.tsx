@@ -38,7 +38,7 @@ export default function PieChart() {
     return () => { mounted = false; };
   }, []);
   return (
-    <div className="h-[300px] w-full">
+    <div className="h-[240px] w-full">
       {PieComp ? (
         React.createElement(PieComp as ComponentType<Record<string, unknown>>, {
           data: {
@@ -61,13 +61,20 @@ export default function PieChart() {
           },
           options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
               legend: {
                 position: 'top' as const,
+                labels: {
+                  font: {
+                    size: 11
+                  },
+                  boxWidth: 12,
+                  padding: 8
+                }
               },
               title: {
-                display: true,
-                text: 'Şirkete Göre Çalışan Dağılımı',
+                display: false,
               },
             },
           },

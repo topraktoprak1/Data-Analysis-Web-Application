@@ -18,6 +18,25 @@ const monthNames = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
+// Helper function to find field value with name variations
+function getFieldValue(record: any, fieldName: string): any {
+  if (!record || !fieldName) return undefined;
+  
+  // Try exact match first
+  if (record[fieldName] !== undefined) return record[fieldName];
+  
+  // Try variations with different whitespace/newlines
+  const normalized = fieldName.replace(/[\s\n\r]+/g, '').toLowerCase();
+  for (const key of Object.keys(record)) {
+    const keyNormalized = key.replace(/[\s\n\r]+/g, '').toLowerCase();
+    if (keyNormalized === normalized) {
+      return record[key];
+    }
+  }
+  
+  return undefined;
+}
+
 
 export default function StatisticsChart() {
   const [tab, setTab] = useState<TabType>("optionOne");
@@ -102,7 +121,7 @@ export default function StatisticsChart() {
   }
 
   function getMonthYearIdx(r: any) {
-    const dateStr = r['(Week / \nMonth)'] || r['(Week / Month)'] || r['Tarih'] || r['Date'];
+    const dateStr = getFieldValue(r, '(Week / Month)') || getFieldValue(r, 'Tarih') || getFieldValue(r, 'Date');
     if (!dateStr || typeof dateStr !== "string" || dateStr.trim() === "") return { month: null, year: null };
     let dt = null;
     for (const fmt of ["%Y-%m-%d", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%Y", "%d/%b/%Y"]) {
@@ -361,7 +380,7 @@ export default function StatisticsChart() {
     const cats: string[] = [];
     const seen = new Set<string>();
     for (const r of recs) {
-      const raw = r[useX as string];
+      const raw = getFieldValue(r, useX as string);
       const val = (/(Tarih|Date|Week|Month)/i.test(useX as string)) ? parseDateToCategory(raw) : String(raw ?? '');
       if (!seen.has(val)) { seen.add(val); cats.push(val); }
     }
@@ -371,28 +390,35 @@ export default function StatisticsChart() {
     for (const r of recs) {
       const { year: recYear } = getMonthYearIdx(r);
       if (Array.isArray(yearsToUse) && yearsToUse.length > 0 && (recYear === null || !yearsToUse.includes(recYear))) continue;
-      const raw = r[useX as string];
+      const raw = getFieldValue(r, useX as string);
       const catVal = (/(Tarih|Date|Week|Month)/i.test(useX as string)) ? parseDateToCategory(raw) : String(raw ?? '');
       const catIdx = categories.indexOf(catVal);
       if (catIdx === -1) continue;
 
       let groupVal = 'Unknown';
-      if (useGroup && r[useGroup] && String(r[useGroup]).trim() !== '') groupVal = String(r[useGroup]);
+      const groupFieldValue = getFieldValue(r, useGroup as string);
+      if (useGroup && groupFieldValue && String(groupFieldValue).trim() !== '') groupVal = String(groupFieldValue);
       else if (Array.isArray(tabConfig[tab]?.groupBy)) {
         for (const f of tabConfig[tab].groupBy) {
-          if (r[f] && String(r[f]).trim() !== '') { groupVal = String(r[f]); break; }
+          const fieldValue = getFieldValue(r, f);
+          if (fieldValue && String(fieldValue).trim() !== '') { groupVal = String(fieldValue); break; }
         }
       }
 
       let value = 0;
       if (!useY || useY === 'KAR/ZARAR') {
-        if (r['İşveren- Hakediş (USD)'] !== undefined && r['General Total Cost (USD)'] !== undefined) {
-          value = Number(r['İşveren- Hakediş (USD)']) - Number(r['General Total Cost (USD)']);
-        } else if (r['İşveren- Hakediş'] !== undefined && r['General Total Cost (USD)'] !== undefined) {
-          value = Number(r['İşveren- Hakediş']) - Number(r['General Total Cost (USD)']);
+        const isveren = getFieldValue(r, 'İşveren- Hakediş (USD)');
+        const generalCost = getFieldValue(r, 'General Total Cost (USD)');
+        const isverenAlt = getFieldValue(r, 'İşveren- Hakediş');
+        
+        if (isveren !== undefined && generalCost !== undefined) {
+          value = Number(isveren) - Number(generalCost);
+        } else if (isverenAlt !== undefined && generalCost !== undefined) {
+          value = Number(isverenAlt) - Number(generalCost);
         } else continue;
       } else if (numericFields.includes(useY)) {
-        value = Number(r[useY]) || 0;
+        const yValue = getFieldValue(r, useY);
+        value = Number(yValue) || 0;
       } else {
         value = 1;
       }

@@ -4,10 +4,13 @@ import UserMetaCard from "../components/UserProfile/UserMetaCard";
 import UserInfoCard from "../components/UserProfile/UserInfoCard";
 import UserAddressCard from "../components/UserProfile/UserAddressCard";
 import PageMeta from "../components/common/PageMeta";
+import DropzoneComponent from "../components/form/form-elements/DropZone";
+import AutoCalculatedFields from "../components/ecommerce/AutoCalculatedFields";
 
 export default function UserProfiles() {
   const [user, setUser] = useState<any>(null);
   const [admin, setAdmin] = useState<any>(null);
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
 
   useEffect(() => {
     // fetch primary user info from backend (adjust endpoint as needed)
@@ -22,6 +25,10 @@ export default function UserProfiles() {
       .then((data) => setAdmin(data?.admin ?? data))
       .catch(() => setAdmin(null));
   }, []);
+
+  const handleUploadSuccess = () => {
+    setDataRefreshKey(prev => prev + 1);
+  };
 
   return (
     <>
@@ -48,6 +55,17 @@ export default function UserProfiles() {
           </div>
         )}
       </div>
+
+      {/* Data Upload Section */}
+      <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] lg:p-6">
+        <h2 className="mb-4 text-lg font-semibold text-gray-800 dark:text-white/90">
+          Veri Setini Ekleyin
+        </h2>
+        <DropzoneComponent onUploadSuccess={handleUploadSuccess} />
+      </div>
+
+      {/* Auto-Calculated Fields Section */}
+      <AutoCalculatedFields key={dataRefreshKey} />
     </>
   );
 }
