@@ -4976,10 +4976,11 @@ def get_mh_table_data():
 
 @app.route('/api/kar-zarar-trends')
 def get_kar_zarar_trends():
-    """Get KAR-ZARAR trends grouped by different dimensions"""
+    """Get KAR-ZARAR or TOTAL MH trends grouped by different dimensions"""
     try:
         dimension = request.args.get('dimension', 'nameSurname')  # nameSurname, discipline, projectsGroup, scope, projects
         year = request.args.get('year', '')
+        metric = request.args.get('metric', 'karZarar')  # karZarar or totalMH
         
         records = DatabaseRecord.query.all()
         if not records:
@@ -4987,7 +4988,7 @@ def get_kar_zarar_trends():
         
         data = [json.loads(r.data) for r in records]
         
-        print(f"[KAR-ZARAR TRENDS] Processing {len(data)} records for dimension: {dimension}")
+        print(f"[KAR-ZARAR TRENDS] Processing {len(data)} records for dimension: {dimension}, metric: {metric}")
         
         # Helper function to get field value
         def get_field_value(record, *possible_names):
@@ -5034,17 +5035,24 @@ def get_kar_zarar_trends():
             if not dim_value:
                 continue
             
-            # Calculate KAR-ZARAR (Profit/Loss) from available fields
-            # Same calculation as StatisticsChart: İşveren- Hakediş (USD) - General Total Cost (USD)
-            actual_value = get_numeric_value(record, 'İşveren- Hakediş (USD)', 'İşveren- Hakediş')
-            cost = get_numeric_value(record, 'General Total Cost (USD)')
-            
-            # If both are None, skip the record
-            if actual_value is None and cost is None:
-                continue
-            
-            # Treat None as 0 for the calculation
-            kar_zarar = (actual_value if actual_value is not None else 0) - (cost if cost is not None else 0) 
+            # Calculate metric value based on selected metric
+            if metric == 'totalMH':
+                # Get TOTAL MH value
+                value = get_numeric_value(record, 'TOTAL MH', 'TOTAL\n MH', 'Total MH')
+                if value is None or value <= 0:
+                    continue
+            else:
+                # Calculate KAR-ZARAR (Profit/Loss) from available fields
+                # Same calculation as StatisticsChart: İşveren- Hakediş (USD) - General Total Cost (USD)
+                actual_value = get_numeric_value(record, 'İşveren- Hakediş (USD)', 'İşveren- Hakediş')
+                cost = get_numeric_value(record, 'General Total Cost (USD)')
+                
+                # If both are None, skip the record
+                if actual_value is None and cost is None:
+                    continue
+                
+                # Treat None as 0 for the calculation
+                value = (actual_value if actual_value is not None else 0) - (cost if cost is not None else 0) 
             
             # Get date
             date_value = get_field_value(record, '(Week / Month)', 'Date', 'date', 'Tarih', 'tarih')
@@ -5109,7 +5117,7 @@ def get_kar_zarar_trends():
                 if month_key not in dimension_data[dim_value]:
                     dimension_data[dim_value][month_key] = 0
                 
-                dimension_data[dim_value][month_key] += kar_zarar
+                dimension_data[dim_value][month_key] += value
                 records_processed += 1
                 
             except Exception as e:

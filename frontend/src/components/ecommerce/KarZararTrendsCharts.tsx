@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../../utils/api';
 
 interface DataPoint {
@@ -15,9 +15,10 @@ interface ChartProps {
   title: string;
   dimension: string;
   year: string;
+  metric: 'karZarar' | 'totalMH';
 }
 
-const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
+const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric }) => {
   const [data, setData] = useState<SeriesData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSeries, setSelectedSeries] = useState<Set<string>>(new Set());
@@ -30,14 +31,10 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
     y: number;
   } | null>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, [dimension, year]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({ dimension, year });
+      const params = new URLSearchParams({ dimension, year, metric });
       const result = await apiFetch<{ data: SeriesData[] }>(`/api/kar-zarar-trends?${params}`);
       setData(result.data || []);
       // Select all series by default
@@ -48,7 +45,11 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dimension, year, metric]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const toggleSeries = (name: string) => {
     setSelectedSeries(prev => {
@@ -297,32 +298,45 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
 
 export default function KarZararTrendsCharts() {
   const [selectedYear, setSelectedYear] = useState<string>('2025');
+  const [metric, setMetric] = useState<'karZarar' | 'totalMH'>('karZarar');
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          📈 Kar-Zarar Trends Analysis
+          📈 {metric === 'karZarar' ? 'Kar-Zarar Trend Analysis' : 'Total MH Trend Analysis'}
         </h2>
-        <select
-          value={selectedYear}
-          onChange={(e) => setSelectedYear(e.target.value)}
-          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-        >
-          <option value="">All Years</option>
-          <option value="2023">2023</option>
-          <option value="2024">2024</option>
-          <option value="2025">2025</option>
-          <option value="2026">2026</option>
-        </select>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-700 dark:text-gray-300">Metric:</span>
+            <button
+              onClick={() => setMetric(metric === 'karZarar' ? 'totalMH' : 'karZarar')}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
+            >
+              <span>{metric === 'karZarar' ? '💰 KAR-ZARAR' : '⏱️ TOTAL MH'}</span>
+              <i className="fas fa-sync-alt text-xs"></i>
+            </button>
+          </div>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+          >
+            <option value="">All Years</option>
+            <option value="2023">2023</option>
+            <option value="2024">2024</option>
+            <option value="2025">2025</option>
+            <option value="2026">2026</option>
+          </select>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2">
-        <KarZararChart title="By Name/Surname" dimension="nameSurname" year={selectedYear} />
-        <KarZararChart title="By Discipline" dimension="discipline" year={selectedYear} />
-        <KarZararChart title="By Projects/Group" dimension="projectsGroup" year={selectedYear} />
-        <KarZararChart title="By Scope" dimension="scope" year={selectedYear} />
-        <KarZararChart title="By Projects" dimension="projects" year={selectedYear} />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <KarZararChart title="By Name/Surname" dimension="nameSurname" year={selectedYear} metric={metric} />
+        <KarZararChart title="By Discipline" dimension="discipline" year={selectedYear} metric={metric} />
+        <KarZararChart title="By Projects/Group" dimension="projectsGroup" year={selectedYear} metric={metric} />
+        <KarZararChart title="By Scope" dimension="scope" year={selectedYear} metric={metric} />
+        <KarZararChart title="By Projects" dimension="projects" year={selectedYear} metric={metric} />
       </div>
     </div>
   );

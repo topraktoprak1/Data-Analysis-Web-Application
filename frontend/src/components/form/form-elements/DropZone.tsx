@@ -48,7 +48,7 @@ const DropzoneComponent: React.FC<DropzoneComponentProps> = ({ onUploadSuccess }
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `Clear failed with status ${response.status}`);
       }
-      const result = await response.json();
+      await response.json(); // Parse response to ensure it's valid JSON
       alert("Existing data cleared successfully!");
       if (onUploadSuccess) onUploadSuccess(); // Refresh the page/data
     } catch (error) {

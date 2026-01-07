@@ -1,9 +1,8 @@
 import Chart from "react-apexcharts";
 import { ApexOptions } from "apexcharts";
-import PieChart from "../pie/PieChart";
 
 import ChartTab from "../../common/ChartTab";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 type TabType = "optionOne" | "optionTwo" | "optionThree";
 
@@ -18,8 +17,39 @@ const monthNames = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
+type DataRecord = Record<string, unknown>;
+
+type MonthMap = {
+  [key: string]: number;
+  Jan: number;
+  Feb: number;
+  Mar: number;
+  Apr: number;
+  May: number;
+  Jun: number;
+  Jul: number;
+  Aug: number;
+  Sep: number;
+  Oct: number;
+  Nov: number;
+  Dec: number;
+};
+
+type SeriesData = {
+  name: string;
+  data: number[];
+};
+
+type PanelConfig = {
+  chartType: string;
+  xField: string | null;
+  yField: string | null;
+  groupByField: string | null;
+  selectedYears: number[];
+};
+
 // Helper function to find field value with name variations
-function getFieldValue(record: any, fieldName: string): any {
+function getFieldValue(record: DataRecord, fieldName: string): unknown {
   if (!record || !fieldName) return undefined;
   
   // Try exact match first
@@ -40,7 +70,7 @@ function getFieldValue(record: any, fieldName: string): any {
 
 export default function StatisticsChart() {
   const [tab, setTab] = useState<TabType>("optionOne");
-  const [series, setSeries] = useState<any[]>([]);
+  const [series, setSeries] = useState<SeriesData[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<"line" | "bar" | "box" | "pie">("line");
   const [fullscreen, setFullscreen] = useState(false);
@@ -51,19 +81,18 @@ export default function StatisticsChart() {
   const [xField, setXField] = useState<string | null>(null);
   const [yField, setYField] = useState<string | null>(null);
   const [categoriesState, setCategoriesState] = useState<string[]>(monthNames);
-  const [year, setYear] = useState<number | null>(null);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [search, setSearch] = useState("");
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
-  const [rawRecords, setRawRecords] = useState<any[]>([]);
-  const [panels, setPanels] = useState<any[]>([
+  const [rawRecords, setRawRecords] = useState<DataRecord[]>([]);
+  const [panels, setPanels] = useState<PanelConfig[]>([
     { chartType: 'line', xField: null, yField: null, groupByField: null, selectedYears: [] }
   ]);
   const [selectedYears, setSelectedYears] = useState<number[]>([]); // empty = all
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
 
   // Extract years from records
-  function extractYears(records: any[]): number[] {
+  function extractYears(records: DataRecord[]): number[] {
     const yearsSet = new Set<number>();
     for (const r of records) {
       const dateStr = r['(Week / \nMonth)'] || r['(Week / Month)'] || r['Tarih'] || r['Date'];
@@ -88,14 +117,16 @@ export default function StatisticsChart() {
             break;
           } else if (fmt === "%d/%b/%Y" && dateStr.match(/^\d{2}\/([A-Za-z]{3})\/\d{4}/)) {
             const [d, mon, y] = dateStr.split("/");
-            const monthMap = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
-            const m = monthMap[mon];
+            const monthMap: MonthMap = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+            const m = monthMap[mon as keyof MonthMap];
             if (m !== undefined) {
               dt = new Date(+y, m, +d);
               break;
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error('Date parsing error:', e);
+        }
       }
       if (!dt || isNaN(dt.getTime())) continue;
       yearsSet.add(dt.getFullYear());
@@ -104,7 +135,7 @@ export default function StatisticsChart() {
   }
 
   // Parse various date formats to a month-name category
-  function parseDateToCategory(dateStr: any) {
+  function parseDateToCategory(dateStr: unknown): string {
     if (!dateStr || typeof dateStr !== 'string') return String(dateStr ?? '');
     let dt = null;
     for (const fmt of ["%Y-%m-%d", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%Y", "%d/%b/%Y"]) {
@@ -113,14 +144,16 @@ export default function StatisticsChart() {
         if (fmt === "%d.%m.%Y" && dateStr.match(/^[0-9]{2}\.[0-9]{2}\.[0-9]{4}/)) { const [d,m,y]=dateStr.split('.'); dt=new Date(+y,+m-1,+d); break; }
         if (fmt === "%Y/%m/%d" && dateStr.match(/^[0-9]{4}\/[0-9]{2}\/[0-9]{2}/)) { const [y,m,d]=dateStr.split('/'); dt=new Date(+y,+m-1,+d); break; }
         if (fmt === "%d/%m/%Y" && dateStr.match(/^[0-9]{2}\/[0-9]{2}\/[0-9]{4}/)) { const [d,m,y]=dateStr.split('/'); dt=new Date(+y,+m-1,+d); break; }
-        if (fmt === "%d/%b/%Y" && dateStr.match(/^[0-9]{2}\/([A-Za-z]{3})\/\d{4}/)) { const [d,mon,y]=dateStr.split('/'); const monthMap: any = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 }; const m = monthMap[mon]; if (m!==undefined){ dt=new Date(+y,m,+d); break; } }
-      } catch(e){}
+        if (fmt === "%d/%b/%Y" && dateStr.match(/^[0-9]{2}\/([A-Za-z]{3})\/\d{4}/)) { const [d,mon,y]=dateStr.split('/'); const monthMap: MonthMap = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 }; const m = monthMap[mon as keyof MonthMap]; if (m!==undefined){ dt=new Date(+y,m,+d); break; } }
+      } catch(e){
+        console.error('Date parsing error:', e);
+      }
     }
     if (!dt || isNaN(dt.getTime())) return String(dateStr);
     return monthNames[dt.getMonth()];
   }
 
-  function getMonthYearIdx(r: any) {
+  function getMonthYearIdx(r: DataRecord): { month: number | null; year: number | null } {
     const dateStr = getFieldValue(r, '(Week / Month)') || getFieldValue(r, 'Tarih') || getFieldValue(r, 'Date');
     if (!dateStr || typeof dateStr !== "string" || dateStr.trim() === "") return { month: null, year: null };
     let dt = null;
@@ -143,14 +176,16 @@ export default function StatisticsChart() {
           break;
         } else if (fmt === "%d/%b/%Y" && dateStr.match(/^[0-9]{2}\/([A-Za-z]{3})\/\d{4}/)) {
           const [d, mon, y] = dateStr.split("/");
-          const monthMap: any = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
-          const m = monthMap[mon];
+          const monthMap: MonthMap = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+          const m = monthMap[mon as keyof MonthMap];
           if (m !== undefined) {
             dt = new Date(+y, m, +d);
             break;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Date parsing error:', e);
+      }
     }
     if (!dt || isNaN(dt.getTime())) return { month: null, year: null };
     return { month: dt.getMonth(), year: dt.getFullYear() };
@@ -200,7 +235,7 @@ export default function StatisticsChart() {
         setLoading(false);
       })
       .catch(() => { setSeries([]); setAvailableYears([]); setLoading(false); });
-  }, [tab]);
+  }, [tab, xField, yField]);
 
   // When availableYears changes, update year if needed
   useEffect(() => {
@@ -209,7 +244,7 @@ export default function StatisticsChart() {
     if (selectedYears.length === 0) {
       setSelectedYears([availableYears[availableYears.length - 1]]);
     }
-  }, [availableYears]);
+  }, [availableYears, selectedYears.length]);
 
   // Recompute series whenever rawRecords or axis/group/years change
   useEffect(() => {
@@ -222,8 +257,9 @@ export default function StatisticsChart() {
     if (!agg || agg.length === 0) { setSeries([]); return; }
     // agg entries include categories attached; take categories from first
     if (agg[0].categories) setCategoriesState(agg[0].categories);
-    const mapped = agg.map((a: any) => ({ name: a.name, data: a.data }));
+    const mapped = agg.map((a) => ({ name: a.name, data: a.data }));
     setSeries(mapped);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawRecords, chartType, xField, yField, groupByField, tab, selectedYears]);
 
   // Filtered series for search
@@ -237,7 +273,6 @@ export default function StatisticsChart() {
     if (series.length > 0) {
       setSelectedNames(series.map(s => s.name));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, series]);
 
   // Handle search filtering
@@ -330,7 +365,7 @@ export default function StatisticsChart() {
       title: { text: yField || 'KAR/ZARAR', style: { fontSize: "16px", color: "#6B7280", fontWeight: 600 } },
     },
   };
-  }, [categoriesState, displayedSeries.length, selectedColor, yField, tab]);
+  }, [categoriesState, displayedSeries.length, selectedColor, yField]);
 
   // Color palette for selection
   const colorPalette = options.colors as string[];
@@ -357,7 +392,7 @@ export default function StatisticsChart() {
   }
 
   // Build box-plot series: one data point per month with distribution across selected series
-  function getBoxPlotSeries(displayed: any[]) {
+  function getBoxPlotSeries(displayed: SeriesData[]) {
     const data = categoriesState.map((m, idx) => {
       const vals = displayed.map(s => (Array.isArray(s.data) ? Number(s.data[idx]) : NaN)).filter(v => Number.isFinite(v));
       const y = computeQuartiles(vals);
@@ -367,7 +402,7 @@ export default function StatisticsChart() {
   }
 
   // Aggregate rawRecords according to a panel config
-  function aggregateForConfig(cfg: { chartType: string; xField: string | null; yField: string | null; groupByField: string | null; selectedYears?: number[] }) {
+  const aggregateForConfig = useCallback((cfg: { chartType: string; xField: string | null; yField: string | null; groupByField: string | null; selectedYears?: number[] }) => {
     const recs = rawRecords || [];
     if (!recs || recs.length === 0) return [];
     const keys = Object.keys(recs[0] || {});
@@ -428,7 +463,7 @@ export default function StatisticsChart() {
     }
 
     return Object.entries(agg).map(([name, data]) => ({ name, data, categories }));
-  }
+  }, [rawRecords, xField, yField, groupByField, tab, selectedYears, numericFields]);
 
   // Ensure panels array length matches numberOfCharts
   useEffect(() => {
@@ -436,7 +471,7 @@ export default function StatisticsChart() {
       const next = [...prev];
       if (next.length < numberOfCharts) {
         for (let i = next.length; i < numberOfCharts; i++) {
-          next.push({ chartType: chartType, xField: xField, yField: yField, groupByField: groupByField, selectedYears: [] } as any);
+          next.push({ chartType: chartType, xField: xField, yField: yField, groupByField: groupByField, selectedYears: [] });
         }
       } else if (next.length > numberOfCharts) {
         next.splice(numberOfCharts);
@@ -447,7 +482,7 @@ export default function StatisticsChart() {
   }, [numberOfCharts]);
 
   // Helper: produce box-plot series from aggregated entries and categories
-  function getBoxPlotSeriesFromAgg(aggEntries: any[], cats: string[]) {
+  function getBoxPlotSeriesFromAgg(aggEntries: SeriesData[], cats: string[]) {
     const data = cats.map((m, idx) => {
       const vals = aggEntries.map(a => (Array.isArray(a.data) ? Number(a.data[idx]) : NaN)).filter(v => Number.isFinite(v));
       const y = computeQuartiles(vals);
@@ -486,7 +521,7 @@ export default function StatisticsChart() {
                         else cp[0] = { ...cp[0], chartType: newType };
                         return cp;
                       });
-                      setChartType(newType as any);
+                      setChartType(newType as "line" | "bar" | "box" | "pie");
                     }}
                     className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
@@ -679,7 +714,7 @@ export default function StatisticsChart() {
                       return (
                         <div className={`grid ${cols} gap-4`}>
                           {panels.map((p, idx) => {
-                            const panelCfg = p as any;
+                            const panelCfg = p;
                             const agg = aggregateForConfig(panelCfg);
                             const panelCats = (agg && agg[0] && agg[0].categories) ? agg[0].categories : categoriesState;
                             const multiType = panelCfg.chartType === 'box' ? 'boxPlot' : panelCfg.chartType === 'pie' ? 'pie' : panelCfg.chartType;
@@ -716,8 +751,8 @@ export default function StatisticsChart() {
                                     <div className="text-sm text-gray-500">No data</div>
                                   ) : multiType === 'pie' ? (
                                     (() => {
-                                      const labels = agg.map((a:any)=>a.name);
-                                      const pieSeries = agg.map((a:any)=>a.data.reduce((s:number,v:number)=>s+Number(v||0),0));
+                                      const labels = agg.map((a)=>a.name);
+                                      const pieSeries = agg.map((a)=>a.data.reduce((s:number,v:number)=>s+Number(v||0),0));
                                       if (!pieSeries || pieSeries.length === 0) return <div className="text-sm text-gray-500">No data</div>;
                                       return <Chart 
                                         key={`pie-panel-${idx}-${labels.join('-')}`}
@@ -765,9 +800,10 @@ export default function StatisticsChart() {
                                     })()
                                   ) : (
                                     (() => {
-                                      const chartSeries = agg.map((a:any)=>({ name: a.name, data: a.data }));
+                                      const chartSeries = agg.map((a)=>({ name: a.name, data: a.data }));
                                       if (!chartSeries || chartSeries.length === 0) return <div className="text-sm text-gray-500">No data</div>;
-                                      return <Chart options={{ ...options, chart: { ...options.chart, type: panelCfg.chartType || 'line' }, xaxis: { type: 'category', categories: panelCats } }} series={chartSeries} type={panelCfg.chartType as any || 'line'} height={200} width={"100%"} />;
+                                      const panelChartType = (panelCfg.chartType === 'line' || panelCfg.chartType === 'bar') ? panelCfg.chartType : 'line';
+                                      return <Chart options={{ ...options, chart: { ...options.chart, type: panelChartType }, xaxis: { type: 'category', categories: panelCats } }} series={chartSeries} type={panelChartType} height={200} width={"100%"} />;
                                     })()
                                   )}
                                 </div>
@@ -800,7 +836,7 @@ export default function StatisticsChart() {
                   ) : (
                     // Single-panel rendering: use panels[0] if present to configure chart
                     (() => {
-                      const p = panels && panels[0] ? panels[0] as any : { chartType, xField, yField, groupByField };
+                      const p = panels && panels[0] ? panels[0] : { chartType, xField, yField, groupByField };
                       // Override selectedYears with current state to ensure year filtering works
                       const configWithYears = { ...p, selectedYears };
                       const agg = aggregateForConfig(configWithYears);
@@ -808,14 +844,15 @@ export default function StatisticsChart() {
                       if (!agg || agg.length === 0) return (<div className="text-sm text-gray-500">No data</div>);
                       
                       // Filter aggregated data based on selectedNames
-                      const filteredAgg = agg.filter((a: any) => selectedNames.includes(a.name));
+                      const filteredAgg = agg.filter((a) => selectedNames.includes(a.name));
                       if (filteredAgg.length === 0) return (<div className="text-sm text-gray-500">No data selected</div>);
                       
                       const currentChartType = p.chartType || 'line';
+                      const validChartType = (currentChartType === 'line' || currentChartType === 'bar') ? currentChartType : 'line';
                       
                       if (currentChartType === 'pie') {
-                        const labels = filteredAgg.map((a:any) => a.name);
-                        const seriesTotals = filteredAgg.map((a:any) => a.data.reduce((s:number,v:number)=>s+Number(v||0),0));
+                        const labels = filteredAgg.map((a) => a.name);
+                        const seriesTotals = filteredAgg.map((a) => a.data.reduce((s:number,v:number)=>s+Number(v||0),0));
                         
                         // Debug: log to check what we're getting
                         console.log('Pie Chart Debug:', { labels, seriesTotals, agg });
@@ -889,7 +926,7 @@ export default function StatisticsChart() {
                           />
                         );
                       }
-                      const chartSeries = filteredAgg.map((a:any)=>({ name: a.name, data: a.data }));
+                      const chartSeries = filteredAgg.map((a)=>({ name: a.name, data: a.data }));
                       if (!chartSeries || chartSeries.length === 0) {
                         return <div className="text-sm text-gray-500">No data for chart</div>;
                       }
@@ -897,11 +934,11 @@ export default function StatisticsChart() {
                         <Chart 
                           options={{ 
                             ...options, 
-                            chart: { ...options.chart, type: currentChartType || 'line' }, 
+                            chart: { ...options.chart, type: validChartType }, 
                             xaxis: { type: 'category', categories: panelCats } 
                           }} 
                           series={chartSeries} 
-                          type={currentChartType as any || 'line'} 
+                          type={validChartType} 
                           height={fullscreen ? "100%" : 500} 
                           width={"100%"} 
                         />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { apiFetch } from '../../utils/api';
 
 interface FilterOption {
@@ -563,20 +563,20 @@ export default function FilteredMHTable() {
                           key={idx}
                           className="border-b border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/30"
                         >
-                          <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-300">
+                          <td className="px-4 py-3 text-sm text-gray-800 dark:text-white">
                             {row.nameSurname}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
                             {row.discipline}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
                             {row.company}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
                             {row.projectsGroup}
                           </td>
                           {selectedMonth ? (
-                            <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800 dark:text-gray-300">
+                            <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800 dark:text-white">
                               {row.monthlyMH[selectedMonth]?.toFixed(2) || '0.00'}
                             </td>
                           ) : (
@@ -585,7 +585,7 @@ export default function FilteredMHTable() {
                               return (
                                 <td 
                                   key={monthKey}
-                                  className="px-4 py-3 text-right text-sm text-gray-800 dark:text-gray-300"
+                                  className="px-4 py-3 text-right text-sm text-gray-800 dark:text-white"
                                 >
                                   {row.monthlyMH[monthKey]?.toFixed(2) || '-'}
                                 </td>
@@ -602,12 +602,12 @@ export default function FilteredMHTable() {
                       <tr>
                         <td 
                           colSpan={4} 
-                          className="px-4 py-3 text-sm font-bold text-gray-800 dark:text-gray-300"
+                          className="px-4 py-3 text-sm font-bold text-gray-800 dark:text-white"
                         >
                           Total
                         </td>
                         {selectedMonth ? (
-                          <td className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-gray-300">
+                          <td className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white">
                             {tableData.reduce((sum, row) => sum + (row.monthlyMH[selectedMonth] || 0), 0).toFixed(2)}
                           </td>
                         ) : (
@@ -617,7 +617,7 @@ export default function FilteredMHTable() {
                             return (
                               <td 
                                 key={monthKey}
-                                className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-gray-300"
+                                className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white"
                               >
                                 {total.toFixed(2)}
                               </td>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../../utils/api';
 
 interface BarData {
@@ -10,24 +10,21 @@ interface ChartProps {
   title: string;
   dimension: string;
   year: string;
+  metric: 'karZarar' | 'totalMH';
 }
 
-const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
+const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric }) => {
   const [data, setData] = useState<BarData[]>([]);
   const [loading, setLoading] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetchData();
-  }, [dimension, year]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({ dimension, year });
+      const params = new URLSearchParams({ dimension, year, metric });
       const result = await apiFetch<{ data: any[] }>(`/api/kar-zarar-trends?${params}`);
       
-      // Aggregate total KAR-ZARAR for each dimension value
+      // Aggregate total for each dimension value
       const aggregated = result.data.map(series => ({
         name: series.name,
         value: series.data.reduce((sum: number, d: any) => sum + d.value, 0)
@@ -42,7 +39,11 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dimension, year, metric]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Chart dimensions
   const chartWidth = 400;
@@ -138,7 +139,7 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
                 y={padding.top + barY}
                 width={barWidth}
                 height={barHeight}
-                fill={item.value >= 0 ? '#10B981' : '#EF4444'}
+                fill={metric === 'totalMH' ? '#3B82F6' : (item.value >= 0 ? '#10B981' : '#EF4444')}
                 className="cursor-pointer transition-opacity hover:opacity-80"
                 onMouseEnter={() => setHoveredIndex(i)}
                 onMouseLeave={() => setHoveredIndex(null)}
@@ -173,8 +174,12 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
             <div className="text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
               {data[hoveredIndex].name}
             </div>
-            <div className={`text-sm font-bold ${data[hoveredIndex].value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-              {formatValue(data[hoveredIndex].value)}
+            <div className={`text-sm font-bold ${
+              metric === 'totalMH' 
+                ? 'text-blue-600 dark:text-blue-400' 
+                : (data[hoveredIndex].value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')
+            }`}>
+              {formatValue(data[hoveredIndex].value)}{metric === 'totalMH' ? ' MH' : ''}
             </div>
           </div>
         )}
@@ -185,32 +190,45 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year }) => {
 
 export default function KarZararBarCharts() {
   const [selectedYear, setSelectedYear] = useState<string>('2025');
+  const [metric, setMetric] = useState<'karZarar' | 'totalMH'>('karZarar');
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          📊 Kar-Zarar by Category
+          📊 {metric === 'karZarar' ? 'Kar-Zarar by Category' : 'Total MH by Category'}
         </h2>
-        <select
-          value={selectedYear}
-          onChange={(e) => setSelectedYear(e.target.value)}
-          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-        >
-          <option value="">All Years</option>
-          <option value="2023">2023</option>
-          <option value="2024">2024</option>
-          <option value="2025">2025</option>
-          <option value="2026">2026</option>
-        </select>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-700 dark:text-gray-300">Metric:</span>
+            <button
+              onClick={() => setMetric(metric === 'karZarar' ? 'totalMH' : 'karZarar')}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
+            >
+              <span>{metric === 'karZarar' ? '💰 KAR-ZARAR' : '⏱️ TOTAL MH'}</span>
+              <i className="fas fa-sync-alt text-xs"></i>
+            </button>
+          </div>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+          >
+            <option value="">All Years</option>
+            <option value="2023">2023</option>
+            <option value="2024">2024</option>
+            <option value="2025">2025</option>
+            <option value="2026">2026</option>
+          </select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <KarZararBarChart title="By Projects" dimension="projects" year={selectedYear} />
-        <KarZararBarChart title="By Company" dimension="company" year={selectedYear} />
-        <KarZararBarChart title="By Discipline" dimension="discipline" year={selectedYear} />
-        <KarZararBarChart title="By North/South" dimension="northSouth" year={selectedYear} />
-        <KarZararBarChart title="By LS/Unit Rate" dimension="lsUnitRate" year={selectedYear} />
+        <KarZararBarChart title="By Projects" dimension="projects" year={selectedYear} metric={metric} />
+        <KarZararBarChart title="By Company" dimension="company" year={selectedYear} metric={metric} />
+        <KarZararBarChart title="By Discipline" dimension="discipline" year={selectedYear} metric={metric} />
+        <KarZararBarChart title="By North/South" dimension="northSouth" year={selectedYear} metric={metric} />
+        <KarZararBarChart title="By LS/Unit Rate" dimension="lsUnitRate" year={selectedYear} metric={metric} />
       </div>
     </div>
   );
