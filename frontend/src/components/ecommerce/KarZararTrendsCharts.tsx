@@ -37,7 +37,7 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
       const params = new URLSearchParams({ dimension, year, metric });
       const result = await apiFetch<{ data: SeriesData[] }>(`/api/kar-zarar-trends?${params}`);
       setData(result.data || []);
-      // Select all series by default
+      // Select all series by default on first load
       setSelectedSeries(new Set(result.data.map(s => s.name)));
     } catch (error) {
       console.error(`Error fetching ${dimension} trends:`, error);
@@ -68,17 +68,20 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
     series.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Get display data - show only selected series if any are selected
+  const displayData = selectedSeries.size > 0
+    ? filteredData.filter(s => selectedSeries.has(s.name))
+    : []; // Show nothing when no selection
+
   // Get all unique months across all series
   const allMonths = Array.from(
-    new Set(filteredData.flatMap(series => series.data.map(d => d.month)))
+    new Set(displayData.flatMap(series => series.data.map(d => d.month)))
   ).sort();
 
-  // Calculate min/max for Y-axis
-  const allValues = filteredData
-    .filter(s => selectedSeries.has(s.name))
-    .flatMap(s => s.data.map(d => d.value));
-  const minValue = Math.min(...allValues, 0);
-  const maxValue = Math.max(...allValues, 0);
+  // Calculate min/max for Y-axis based on display data
+  const allValues = displayData.flatMap(s => s.data.map(d => d.value));
+  const minValue = allValues.length > 0 ? Math.min(...allValues, 0) : 0;
+  const maxValue = allValues.length > 0 ? Math.max(...allValues, 0) : 0;
   const valueRange = maxValue - minValue;
   const yMin = minValue - valueRange * 0.1;
   const yMax = maxValue + valueRange * 0.1;
@@ -125,20 +128,22 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-white/90">{title}</h3>
-        <input
-          type="text"
-          placeholder="Search..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-48 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 placeholder-gray-400 focus:border-primary focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-500"
-        />
       </div>
       
       <div className="flex gap-4">
         {/* Chart */}
         <div className="relative flex-1">
+          {displayData.length === 0 ? (
+            // Empty state when nothing is selected
+            <div className="flex items-center justify-center" style={{ width: chartWidth, height: chartHeight }}>
+              <div className="text-center text-gray-500 dark:text-gray-400">
+                <i className="fas fa-chart-line mb-2 text-2xl"></i>
+                <p className="text-sm">Select series to view trends</p>
+              </div>
+            </div>
+          ) : (
           <svg width={chartWidth} height={chartHeight} className="overflow-visible">
             {/* Y-axis grid lines */}
             {[0, 1, 2, 3, 4].map(i => {
@@ -187,8 +192,9 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
             })}
 
             {/* Plot lines */}
-            {filteredData.map((series, seriesIndex) => {
-              if (!selectedSeries.has(series.name)) return null;
+            {displayData.map((series) => {
+              // Find original index for consistent coloring
+              const originalIndex = data.findIndex(s => s.name === series.name);
 
               const points = allMonths.map((month, i) => {
                 const dataPoint = series.data.find(d => d.month === month);
@@ -211,7 +217,7 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
                 <g key={series.name}>
                   <path
                     d={pathData}
-                    stroke={getColor(seriesIndex)}
+                    stroke={getColor(originalIndex)}
                     strokeWidth="2"
                     fill="none"
                   />
@@ -221,7 +227,7 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
                       cx={point.x}
                       cy={point.y!}
                       r="4"
-                      fill={getColor(seriesIndex)}
+                      fill={getColor(originalIndex)}
                       className="cursor-pointer transition-all hover:r-6"
                       onMouseEnter={(e) => {
                         const rect = e.currentTarget.getBoundingClientRect();
@@ -240,9 +246,11 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
               );
             })}
           </svg>
+          )
+          }
 
           {/* Tooltip */}
-          {hoveredPoint && (
+          {hoveredPoint && displayData.length > 0 && (
             <div
               className="pointer-events-none fixed z-50 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-lg dark:border-gray-600 dark:bg-gray-800"
               style={{
@@ -258,37 +266,74 @@ const KarZararChart: React.FC<ChartProps> = ({ title, dimension, year, metric })
           )}
         </div>
 
-        {/* Legend with checkboxes */}
-        <div className="w-48 overflow-y-auto" style={{ maxHeight: '300px' }}>
-          <div className="space-y-2">
-            {filteredData.map((series, index) => {
+        {/* Legend with enhanced selection UI */}
+        <div className="w-48">
+          {/* Search box */}
+          <div className="mb-2">
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
+
+          {/* Selection Control Buttons */}
+          <div className="mb-2 flex gap-1">
+            <button
+              onClick={() => setSelectedSeries(new Set(filteredData.map(s => s.name)))}
+              className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              <i className="fas fa-check-double mr-1"></i>
+              All
+            </button>
+            <button
+              onClick={() => setSelectedSeries(new Set())}
+              className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              <i className="fas fa-times-circle mr-1"></i>
+              None
+            </button>
+          </div>
+
+          {/* Legend items */}
+          <div className="overflow-y-auto" style={{ maxHeight: '240px' }}>
+          <div className="space-y-1">
+            {filteredData.map((series) => {
+              const originalIndex = data.findIndex(s => s.name === series.name);
               const total = series.data.reduce((sum, d) => sum + d.value, 0);
+              const isSelected = selectedSeries.has(series.name);
+              const hasSelection = selectedSeries.size > 0;
+              const opacity = hasSelection && !isSelected ? 0.4 : 1;
+              
               return (
-                <label
+                <div
                   key={series.name}
-                  className="flex cursor-pointer items-center gap-2 text-xs hover:bg-gray-50 rounded p-1 dark:hover:bg-gray-800/50"
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs transition-all hover:bg-gray-100 dark:hover:bg-gray-800"
+                  style={{ opacity }}
+                  onClick={() => toggleSeries(series.name)}
                 >
-                  <input
-                    type="checkbox"
-                    checked={selectedSeries.has(series.name)}
-                    onChange={() => toggleSeries(series.name)}
-                    className="rounded"
-                  />
                   <div
-                    className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: getColor(index) }}
+                    className="h-3 w-3 rounded-full transition-transform"
+                    style={{
+                      backgroundColor: getColor(originalIndex),
+                      transform: isSelected ? 'scale(1.2)' : 'scale(1)',
+                      boxShadow: isSelected ? '0 0 0 2px rgba(59, 130, 246, 0.5)' : 'none'
+                    }}
                   />
                   <div className="flex-1 truncate">
-                    <div className="truncate text-gray-700 dark:text-gray-300" title={series.name}>
+                    <div className={`truncate ${isSelected ? 'font-semibold' : ''} text-gray-700 dark:text-gray-300`} title={series.name}>
                       {series.name}
                     </div>
-                    <div className="font-semibold" style={{ color: getColor(index) }}>
+                    <div className={`font-semibold text-xs ${isSelected ? 'text-blue-600 dark:text-blue-400' : ''}`} style={{ color: isSelected ? undefined : getColor(originalIndex) }}>
                       {formatValue(total)}
                     </div>
                   </div>
-                </label>
+                </div>
               );
             })}
+          </div>
           </div>
         </div>
       </div>
@@ -331,7 +376,7 @@ export default function KarZararTrendsCharts() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-2">
         <KarZararChart title="By Name/Surname" dimension="nameSurname" year={selectedYear} metric={metric} />
         <KarZararChart title="By Discipline" dimension="discipline" year={selectedYear} metric={metric} />
         <KarZararChart title="By Projects/Group" dimension="projectsGroup" year={selectedYear} metric={metric} />

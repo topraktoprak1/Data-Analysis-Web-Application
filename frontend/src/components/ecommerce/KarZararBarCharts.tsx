@@ -17,6 +17,7 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
   const [data, setData] = useState<BarData[]>([]);
   const [loading, setLoading] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
   const fetchData = useCallback(async () => {
     try {
@@ -33,6 +34,8 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
       // Sort by value descending and take top 15
       aggregated.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
       setData(aggregated.slice(0, 15));
+      // Select all items by default on first load
+      setSelectedIndices(new Set(aggregated.slice(0, 15).map((_, i) => i)));
     } catch (error) {
       console.error(`Error fetching ${dimension} bar data:`, error);
       setData([]);
@@ -41,9 +44,26 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
     }
   }, [dimension, year, metric]);
 
+  const toggleSelection = (index: number) => {
+    setSelectedIndices(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Filter data based on selection - if items are selected, show only those
+  const displayData = selectedIndices.size > 0
+    ? data.filter((_, index) => selectedIndices.has(index))
+    : []; // Show nothing when no selection
 
   // Chart dimensions
   const chartWidth = 400;
@@ -52,15 +72,15 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
   const plotWidth = chartWidth - padding.left - padding.right;
   const plotHeight = chartHeight - padding.top - padding.bottom;
 
-  // Calculate scales
-  const maxValue = Math.max(...data.map(d => Math.abs(d.value)), 0);
-  const minValue = Math.min(...data.map(d => d.value), 0);
+  // Calculate scales based on displayData
+  const maxValue = Math.max(...displayData.map(d => Math.abs(d.value)), 0);
+  const minValue = Math.min(...displayData.map(d => d.value), 0);
   const yMax = maxValue * 1.1;
   const yMin = minValue < 0 ? minValue * 1.1 : 0;
   const yRange = yMax - yMin;
 
-  const barWidth = plotWidth / Math.max(data.length, 1) * 0.8;
-  const barSpacing = plotWidth / Math.max(data.length, 1);
+  const barWidth = plotWidth / Math.max(displayData.length, 1) * 0.8;
+  const barSpacing = plotWidth / Math.max(displayData.length, 1);
 
   const yScale = (value: number) => plotHeight - ((value - yMin) / yRange) * plotHeight;
 
@@ -83,6 +103,15 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
       <h3 className="mb-4 text-sm font-semibold text-gray-800 dark:text-white/90">{title}</h3>
       
       <div className="relative">
+        {displayData.length === 0 ? (
+          // Empty state when nothing is selected
+          <div className="flex items-center justify-center" style={{ width: chartWidth, height: chartHeight }}>
+            <div className="text-center text-gray-500 dark:text-gray-400">
+              <i className="fas fa-mouse-pointer mb-2 text-2xl"></i>
+              <p className="text-sm">Select items to view</p>
+            </div>
+          </div>
+        ) : (
         <svg width={chartWidth} height={chartHeight}>
           {/* Y-axis grid lines and labels */}
           {[0, 1, 2, 3, 4].map(i => {
@@ -127,7 +156,7 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
         )}
 
         {/* Bars */}
-        {data.map((item, i) => {
+        {displayData.map((item, i) => {
           const barHeight = Math.abs(yScale(item.value) - yScale(0));
           const barY = item.value >= 0 ? yScale(item.value) : yScale(0);
           const barX = padding.left + i * barSpacing + (barSpacing - barWidth) / 2;
@@ -143,6 +172,10 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
                 className="cursor-pointer transition-opacity hover:opacity-80"
                 onMouseEnter={() => setHoveredIndex(i)}
                 onMouseLeave={() => setHoveredIndex(null)}
+                onClick={() => {
+                  const originalIndex = data.findIndex(d => d.name === item.name);
+                  toggleSelection(originalIndex);
+                }}
               />
               {/* X-axis labels */}
               <text
@@ -159,30 +192,84 @@ const KarZararBarChart: React.FC<ChartProps> = ({ title, dimension, year, metric
         })}
 
         </svg>
+        )}
 
         {/* Tooltip - positioned outside SVG to prevent clipping */}
-        {hoveredIndex !== null && (
+        {hoveredIndex !== null && hoveredIndex < displayData.length && displayData.length > 0 && (
           <div
             className="pointer-events-none absolute rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-lg dark:border-gray-700 dark:bg-gray-800"
             style={{
               left: `${padding.left + hoveredIndex * barSpacing + barWidth / 2}px`,
-              top: `${Math.max(10, padding.top + yScale(data[hoveredIndex].value) - 50)}px`,
+              top: `${Math.max(10, padding.top + yScale(displayData[hoveredIndex].value) - 50)}px`,
               transform: 'translateX(-50%)',
               zIndex: 50,
             }}
           >
             <div className="text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
-              {data[hoveredIndex].name}
+              {displayData[hoveredIndex].name}
             </div>
             <div className={`text-sm font-bold ${
               metric === 'totalMH' 
                 ? 'text-blue-600 dark:text-blue-400' 
-                : (data[hoveredIndex].value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')
+                : (displayData[hoveredIndex].value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')
             }`}>
-              {formatValue(data[hoveredIndex].value)}{metric === 'totalMH' ? ' MH' : ''}
+              {formatValue(displayData[hoveredIndex].value)}{metric === 'totalMH' ? ' MH' : ''}
             </div>
           </div>
         )}
+
+        {/* Selection Control Buttons */}
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={() => setSelectedIndices(new Set(data.map((_, i) => i)))}
+            className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <i className="fas fa-check-double mr-1"></i>
+            Select All
+          </button>
+          <button
+            onClick={() => setSelectedIndices(new Set())}
+            className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <i className="fas fa-times-circle mr-1"></i>
+            Deselect All
+          </button>
+        </div>
+
+        {/* Legend for selection */}
+        <div className="mt-4 max-h-40 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-1">
+            {data.map((item, index) => {
+              const isSelected = selectedIndices.has(index);
+              const hasSelection = selectedIndices.size > 0;
+              const opacity = hasSelection && !isSelected ? 0.4 : 1;
+              const color = metric === 'totalMH' ? '#3B82F6' : (item.value >= 0 ? '#10B981' : '#EF4444');
+              
+              return (
+                <div
+                  key={item.name}
+                  className="flex items-center gap-1 cursor-pointer rounded px-2 py-1 transition-all hover:bg-gray-100 dark:hover:bg-gray-800"
+                  style={{ opacity }}
+                  onClick={() => toggleSelection(index)}
+                >
+                  <div
+                    className="h-3 w-3 rounded-sm transition-transform"
+                    style={{
+                      backgroundColor: color,
+                      transform: isSelected ? 'scale(1.2)' : 'scale(1)',
+                      boxShadow: isSelected ? '0 0 0 2px rgba(59, 130, 246, 0.5)' : 'none'
+                    }}
+                  />
+                  <div className="flex-1 overflow-hidden">
+                    <div className={`truncate text-xs ${isSelected ? 'font-semibold' : ''} text-gray-700 dark:text-gray-300`} title={item.name}>
+                      {item.name.length > 12 ? item.name.substring(0, 12) + '...' : item.name}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );

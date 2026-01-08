@@ -5188,7 +5188,7 @@ def get_total_mh_pie():
         
         # Map dimension to field names
         field_mapping = {
-            'projects': ['Projects', 'projects'],
+            'projects': ['Projects/Group'],
             'company': ['Company', 'company', 'Firma', 'Şirket'],
             'discipline': ['Discipline', 'discipline'],
             'northSouth': ['North/South', 'North/ South', 'North/\nSouth', 'northSouth', 'Kuzey/Güney'],
