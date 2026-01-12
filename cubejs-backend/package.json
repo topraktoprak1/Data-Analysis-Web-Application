@@ -1,0 +1,14 @@
+{
+  "name": "cubejs-backend",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "cubejs-server"
+  },
+  "template": "docker",
+  "templateVersion": "1.6.1",
+  "devDependencies": {
+    "@cubejs-backend/postgres-driver": "^1.6.1",
+    "@cubejs-backend/server": "^1.6.1"
+  }
+}

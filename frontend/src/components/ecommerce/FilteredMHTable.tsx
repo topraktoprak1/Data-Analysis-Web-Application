@@ -1,0 +1,929 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { apiFetch } from '../../utils/api';
+
+interface FilterOption {
+  label: string;
+  value: string;
+}
+
+interface FilterState {
+  nameSurname: string[];
+  discipline: string[];
+  company: string[];
+  projectsGroup: string[];
+  scope: string[];
+  projects: string[];
+  nationality: string[];
+  status: string[];
+  northSouth: string[];
+  control1: string[];
+  no1: string[];
+  no2: string[];
+  no3: string[];
+  no10: string[];
+  kontrol1: string[];
+  kontrol2: string[];
+  lsUnitRate: string[];
+}
+
+interface TableData {
+  nameSurname: string;
+  discipline: string;
+  company: string;
+  projectsGroup: string;
+  scope: string;
+  projects: string;
+  nationality: string;
+  status: string;
+  monthlyMH: { [key: string]: number };
+  totalMH: number;
+}
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const YEARS = ['2023', '2024', '2025', '2026'];
+
+const FILTER_STORAGE_KEY = 'filteredMHTable_filters';
+const YEAR_STORAGE_KEY = 'filteredMHTable_year';
+const MONTH_STORAGE_KEY = 'filteredMHTable_month';
+
+const FILTER_LABELS: { [key: string]: string } = {
+  nameSurname: 'Name',
+  discipline: 'Discipline',
+  company: 'Company',
+  projectsGroup: 'Projects/Group',
+  scope: 'Scope',
+  projects: 'Projects',
+  nationality: 'Nationality',
+  status: 'Status',
+  northSouth: 'North/ South',
+  control1: 'Control-1',
+  no1: 'NO-1',
+  no2: 'NO-2',
+  no3: 'NO-3',
+  no10: 'NO-10',
+  kontrol1: 'Konrol-1',
+  kontrol2: 'Knrtol-2',
+  lsUnitRate: 'LS/Unit Rate',
+};
+
+export default function FilteredMHTable() {
+  const [filtersExpanded, setFiltersExpanded] = useState(true);
+  
+  // Load initial state from localStorage
+  const loadStoredFilters = (): FilterState => {
+    try {
+      const stored = localStorage.getItem(FILTER_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('[FilteredMHTable] Error loading stored filters:', error);
+    }
+    return {
+      nameSurname: [],
+      discipline: [],
+      company: [],
+      projectsGroup: [],
+      scope: [],
+      projects: [],
+      nationality: [],
+      status: [],
+      northSouth: [],
+      control1: [],
+      no1: [],
+      no2: [],
+      no3: [],
+      no10: [],
+      kontrol1: [],
+      kontrol2: [],
+      lsUnitRate: [],
+    };
+  };
+  
+  const loadStoredYear = (): string => {
+    try {
+      return localStorage.getItem(YEAR_STORAGE_KEY) || '';
+    } catch (error) {
+      console.error('[FilteredMHTable] Error loading stored year:', error);
+      return '';
+    }
+  };
+  
+  const loadStoredMonth = (): string => {
+    try {
+      return localStorage.getItem(MONTH_STORAGE_KEY) || '';
+    } catch (error) {
+      console.error('[FilteredMHTable] Error loading stored month:', error);
+      return '';
+    }
+  };
+  
+  const [selectedYear, setSelectedYear] = useState<string>(loadStoredYear());
+  const [selectedMonth, setSelectedMonth] = useState<string>(loadStoredMonth());
+  const [loading, setLoading] = useState(false);
+  const [tableData, setTableData] = useState<TableData[]>([]);
+  const [filterOptions, setFilterOptions] = useState<{ [key: string]: FilterOption[] }>({});
+  const [filters, setFilters] = useState<FilterState>(loadStoredFilters());
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const filterDebounceTimer = useRef<number | null>(null);
+  const isInitialMount = useRef(true);
+
+  // Save filters to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters));
+      console.log('[FilteredMHTable] Saved filters to localStorage');
+    } catch (error) {
+      console.error('[FilteredMHTable] Error saving filters:', error);
+    }
+  }, [filters]);
+
+  // Save year to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(YEAR_STORAGE_KEY, selectedYear);
+    } catch (error) {
+      console.error('[FilteredMHTable] Error saving year:', error);
+    }
+  }, [selectedYear]);
+
+  // Save month to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(MONTH_STORAGE_KEY, selectedMonth);
+    } catch (error) {
+      console.error('[FilteredMHTable] Error saving month:', error);
+    }
+  }, [selectedMonth]);
+
+  useEffect(() => {
+    fetchFilterOptions();
+    fetchTableData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetchTableData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear, selectedMonth]);
+
+  // Debounced refetch for filters (both options and table data)
+  useEffect(() => {
+    // Skip debounce on initial mount
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    
+    console.log('[FilteredMHTable] Filters changed, scheduling refetch...');
+    
+    if (filterDebounceTimer.current) {
+      clearTimeout(filterDebounceTimer.current);
+    }
+    
+    filterDebounceTimer.current = setTimeout(() => {
+      console.log('[FilteredMHTable] Executing scheduled refetch after debounce');
+      fetchFilterOptions();
+      fetchTableData();
+    }, 500); // Increased to 500ms debounce
+    
+    return () => {
+      if (filterDebounceTimer.current) {
+        clearTimeout(filterDebounceTimer.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  const fetchFilterOptions = async () => {
+    try {
+      const params = new URLSearchParams({
+        filters: JSON.stringify(filters),
+      });
+      const result = await apiFetch<{ [key: string]: FilterOption[] }>(`/api/filter-options?${params}`);
+      setFilterOptions(result);
+    } catch (error) {
+      console.error('[FilteredMHTable] Error fetching filter options:', error);
+      setFilterOptions({});
+    }
+  };
+
+  const fetchTableData = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        year: selectedYear,
+        month: selectedMonth,
+        filters: JSON.stringify(filters),
+      });
+      const result = await apiFetch<{ data: TableData[] }>(`/api/mh-table-data?${params}`);
+      setTableData(result.data || []);
+      setCurrentPage(1); // Reset to first page when data changes
+    } catch (error) {
+      console.error('[FilteredMHTable] Error fetching table data:', error);
+      setTableData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFilterChange = (filterKey: keyof FilterState, value: string) => {
+    React.startTransition(() => {
+      setFilters(prev => {
+        const currentValues = prev[filterKey];
+        const newValues = currentValues.includes(value)
+          ? currentValues.filter(v => v !== value)
+          : [...currentValues, value];
+        return { ...prev, [filterKey]: newValues };
+      });
+    });
+  };
+
+  const clearAllFilters = () => {
+    const emptyFilters: FilterState = {
+      nameSurname: [],
+      discipline: [],
+      company: [],
+      projectsGroup: [],
+      scope: [],
+      projects: [],
+      nationality: [],
+      status: [],
+      northSouth: [],
+      control1: [],
+      no1: [],
+      no2: [],
+      no3: [],
+      no10: [],
+      kontrol1: [],
+      kontrol2: [],
+      lsUnitRate: [],
+    };
+    setFilters(emptyFilters);
+    setCurrentPage(1); // Reset to first page when filters are cleared
+    
+    // Also clear from localStorage
+    try {
+      localStorage.removeItem(FILTER_STORAGE_KEY);
+      console.log('[FilteredMHTable] Cleared filters from localStorage');
+    } catch (error) {
+      console.error('[FilteredMHTable] Error clearing filters:', error);
+    }
+  };
+
+  // Pagination calculations
+  const totalPages = Math.ceil(tableData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = tableData.slice(startIndex, endIndex);
+
+  // Determine available years from the data
+  const availableYears = useMemo(() => {
+    if (!tableData.length) return [];
+    
+    const yearsSet = new Set<string>();
+    tableData.forEach(row => {
+      Object.keys(row.monthlyMH).forEach(monthKey => {
+        // monthKey format is assumed to be "YYYY-MM" or we need to extract year from somewhere
+        // Since we only have month keys like "01", "02", etc., we need to check YEARS array
+        // Let's check which years actually have data by looking at the filter or available years
+      });
+    });
+    
+    // For now, return years that are in our YEARS constant and filter if needed
+    return YEARS.filter(year => {
+      // Check if any row has data for this year
+      // This is a simplified check - in reality you'd want to parse actual dates
+      return true; // Return all years for now, backend should filter
+    });
+  }, [tableData]);
+
+  // When "All Years" is selected, show year-grouped columns
+  const shouldShowYearGrouping = !selectedYear && !selectedMonth;
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  // Generate page numbers for pagination
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    const maxVisible = 5; // Maximum number of page buttons to show
+
+    if (totalPages <= maxVisible) {
+      // Show all pages if total is less than max
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      // Always show first page
+      pages.push(1);
+
+      if (currentPage > 3) {
+        pages.push('...');
+      }
+
+      // Show pages around current page
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+
+      if (currentPage < totalPages - 2) {
+        pages.push('...');
+      }
+
+      // Always show last page
+      pages.push(totalPages);
+    }
+
+    return pages;
+  };
+
+  const FilterSection = React.memo(({ 
+    title, 
+    filterKey, 
+    options 
+  }: { 
+    title: string; 
+    filterKey: keyof FilterState; 
+    options: FilterOption[] 
+  }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const selectedValues = filters[filterKey];
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Use Set for faster lookup
+    const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
+
+    // Filter options based on search term with useMemo
+    const filteredOptions = useMemo(() => {
+      if (!searchTerm) return options;
+      const lowerSearch = searchTerm.toLowerCase();
+      return options.filter(option => option.label.toLowerCase().includes(lowerSearch));
+    }, [options, searchTerm]);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+          setIsExpanded(false);
+        }
+      };
+
+      if (isExpanded) {
+        document.addEventListener('mousedown', handleClickOutside);
+      }
+
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }, [isExpanded]);
+
+    return (
+      <div className="mb-3" ref={dropdownRef}>
+        <div className="relative">
+          {/* Trigger Button */}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-sm text-gray-700 hover:border-primary dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{title}</span>
+              <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-xs`}></i>
+            </div>
+          </button>
+
+          {/* Dropdown Panel */}
+          {isExpanded && (
+            <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-300 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800">
+              {/* Selected Pills */}
+              {selectedValues.length > 0 && (
+                <div className="border-b border-gray-200 p-2 dark:border-gray-700">
+                  <div className="flex flex-wrap gap-1">
+                    {selectedValues.map(value => {
+                      const option = options.find(opt => opt.value === value);
+                      return (
+                        <span
+                          key={value}
+                          className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-1 text-xs text-white"
+                        >
+                          {option?.label || value}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              handleFilterChange(filterKey, value);
+                            }}
+                            className="hover:text-gray-200"
+                            type="button"
+                          >
+                            <i className="fas fa-times text-xs"></i>
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Search Input */}
+              <div className="border-b border-gray-200 p-2 dark:border-gray-700">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 placeholder-gray-400 focus:border-primary focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-500"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+              
+              {/* Options List */}
+              <div className="max-h-60 overflow-y-auto">
+                {filteredOptions.length > 0 ? (
+                  filteredOptions.map(option => {
+                    const isSelected = selectedSet.has(option.value);
+                    return (
+                      <div
+                        key={option.value}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFilterChange(filterKey, option.value);
+                        }}
+                        className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                      >
+                        <span>{option.label}</span>
+                        {isSelected && (
+                          <i className="fas fa-check text-primary"></i>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                    {options.length === 0 ? 'No options available' : 'No matches found'}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  });
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="border-b border-gray-200 px-6 py-4 dark:border-gray-800">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            📊 Man-Hour Analysis by Filters
+          </h3>
+          <div className="flex gap-3">
+            {/* Year Selector */}
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            >
+              <option value="">All Years</option>
+              {YEARS.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            
+            {/* Month Selector */}
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            >
+              <option value="">All Months</option>
+              {MONTHS.map((month, idx) => (
+                <option key={month} value={(idx + 1).toString().padStart(2, '0')}>
+                  {month}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={clearAllFilters}
+              className="rounded-lg bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600"
+            >
+              <i className="fas fa-eraser mr-2"></i>
+              Clear All
+            </button>
+          </div>
+        </div>
+
+        {/* Active Filters Display */}
+        {Object.entries(filters).some(([, values]) => values.length > 0) && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {Object.entries(filters).map(([filterKey, values]) => {
+              if (values.length === 0) return null;
+              
+              return values.map((value: string) => (
+                <span
+                  key={`${filterKey}-${value}`}
+                  className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-white"
+                >
+                  <span className="text-xs opacity-75">{FILTER_LABELS[filterKey]}:</span>
+                  <span>{value}</span>
+                  <button
+                    onClick={() => handleFilterChange(filterKey as keyof FilterState, value)}
+                    className="hover:text-gray-200"
+                    title="Remove filter"
+                  >
+                    <i className="fas fa-times text-xs"></i>
+                  </button>
+                </span>
+              ));
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="flex">
+        {/* Filters Sidebar */}
+        <div
+          className={`transition-all duration-300 ${
+            filtersExpanded ? 'w-64' : 'w-12'
+          } border-r border-gray-200 dark:border-gray-800`}
+        >
+          <div className="sticky top-0">
+            <button
+              onClick={() => setFiltersExpanded(!filtersExpanded)}
+              className="w-full border-b border-gray-200 p-3 text-center hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+              title={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
+            >
+              <i className={`fas fa-${filtersExpanded ? 'angle-left' : 'angle-right'}`}></i>
+            </button>
+
+            {filtersExpanded && (
+              <div className="max-h-[600px] overflow-y-auto p-4">
+                <h4 className="mb-4 text-sm font-bold text-gray-700 dark:text-gray-300">
+                  Filters
+                </h4>
+
+                <FilterSection 
+                  title="Name Surname" 
+                  filterKey="nameSurname" 
+                  options={filterOptions.nameSurname || []} 
+                />
+                <FilterSection 
+                  title="Discipline" 
+                  filterKey="discipline" 
+                  options={filterOptions.discipline || []} 
+                />
+                <FilterSection 
+                  title="Company" 
+                  filterKey="company" 
+                  options={filterOptions.company || []} 
+                />
+                <FilterSection 
+                  title="Projects/Group" 
+                  filterKey="projectsGroup" 
+                  options={filterOptions.projectsGroup || []} 
+                />
+                <FilterSection 
+                  title="Scope" 
+                  filterKey="scope" 
+                  options={filterOptions.scope || []} 
+                />
+                <FilterSection 
+                  title="Projects" 
+                  filterKey="projects" 
+                  options={filterOptions.projects || []} 
+                />
+                <FilterSection 
+                  title="Nationality" 
+                  filterKey="nationality" 
+                  options={filterOptions.nationality || []} 
+                />
+                <FilterSection 
+                  title="Status" 
+                  filterKey="status" 
+                  options={filterOptions.status || []} 
+                />
+                <FilterSection 
+                  title="North/South" 
+                  filterKey="northSouth" 
+                  options={filterOptions.northSouth || []} 
+                />
+                <FilterSection 
+                  title="Control-1" 
+                  filterKey="control1" 
+                  options={filterOptions.control1 || []} 
+                />
+                <FilterSection 
+                  title="NO-1" 
+                  filterKey="no1" 
+                  options={filterOptions.no1 || []} 
+                />
+                <FilterSection 
+                  title="NO-2" 
+                  filterKey="no2" 
+                  options={filterOptions.no2 || []} 
+                />
+                <FilterSection 
+                  title="NO-3" 
+                  filterKey="no3" 
+                  options={filterOptions.no3 || []} 
+                />
+                <FilterSection 
+                  title="NO-10" 
+                  filterKey="no10" 
+                  options={filterOptions.no10 || []} 
+                />
+                <FilterSection 
+                  title="Kontrol-1" 
+                  filterKey="kontrol1" 
+                  options={filterOptions.kontrol1 || []} 
+                />
+                <FilterSection 
+                  title="Kontrol-2" 
+                  filterKey="kontrol2" 
+                  options={filterOptions.kontrol2 || []} 
+                />
+                <FilterSection 
+                  title="LS/Unit Rate" 
+                  filterKey="lsUnitRate" 
+                  options={filterOptions.lsUnitRate || []} 
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Table Content */}
+        <div className="flex-1 overflow-x-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            </div>
+          ) : (
+            <div className="p-6">
+              {tableData.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
+                      {shouldShowYearGrouping && availableYears.length > 1 ? (
+                        <>
+                          {/* Year header row */}
+                          <tr>
+                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
+                              Name
+                            </th>
+                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
+                              Discipline
+                            </th>
+                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
+                              Company
+                            </th>
+                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
+                              Projects/Group
+                            </th>
+                            {availableYears.map(year => (
+                              <th 
+                                key={year}
+                                colSpan={12}
+                                className="px-4 py-2 text-center text-sm font-bold text-gray-800 dark:text-gray-200 border-r border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700"
+                              >
+                                {year}
+                              </th>
+                            ))}
+                            <th rowSpan={2} className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
+                              Total MH
+                            </th>
+                          </tr>
+                          {/* Month header row */}
+                          <tr>
+                            {availableYears.map(year => (
+                              <React.Fragment key={year}>
+                                {MONTHS.map((month) => (
+                                  <th 
+                                    key={`${year}-${month}`}
+                                    className="px-2 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-gray-700"
+                                  >
+                                    {month.slice(0, 3)}
+                                  </th>
+                                ))}
+                              </React.Fragment>
+                            ))}
+                          </tr>
+                        </>
+                      ) : (
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                            Name
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                            Discipline
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                            Company
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                            Projects/Group
+                          </th>
+                          {selectedMonth ? (
+                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
+                              {MONTHS[parseInt(selectedMonth) - 1]} {selectedYear} MH
+                            </th>
+                          ) : (
+                            MONTHS.map((month) => (
+                              <th 
+                                key={month}
+                                className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300"
+                              >
+                                {month.slice(0, 3)}
+                              </th>
+                            ))
+                          )}
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
+                            Total MH
+                          </th>
+                        </tr>
+                      )}
+                    </thead>
+                    <tbody>
+                      {paginatedData.map((row, idx) => (
+                        <tr 
+                          key={startIndex + idx}
+                          className="border-b border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/30"
+                        >
+                          <td className="px-4 py-3 text-sm text-gray-800 dark:text-white">
+                            {row.nameSurname}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
+                            {row.discipline}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
+                            {row.company}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
+                            {row.projectsGroup}
+                          </td>
+                          {shouldShowYearGrouping && availableYears.length > 1 ? (
+                            // Show year-grouped columns
+                            availableYears.map(year => (
+                              <React.Fragment key={year}>
+                                {MONTHS.map((_, monthIdx) => {
+                                  const monthKey = `${year}-${(monthIdx + 1).toString().padStart(2, '0')}`;
+                                  return (
+                                    <td 
+                                      key={monthKey}
+                                      className="px-2 py-3 text-right text-xs text-gray-800 dark:text-white border-r border-gray-200 dark:border-gray-700"
+                                    >
+                                      {row.monthlyMH[monthKey]?.toFixed(2) || '-'}
+                                    </td>
+                                  );
+                                })}
+                              </React.Fragment>
+                            ))
+                          ) : selectedMonth ? (
+                            <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800 dark:text-white">
+                              {row.monthlyMH[selectedMonth]?.toFixed(2) || '0.00'}
+                            </td>
+                          ) : (
+                            MONTHS.map((_, monthIdx) => {
+                              const monthKey = (monthIdx + 1).toString().padStart(2, '0');
+                              return (
+                                <td 
+                                  key={monthKey}
+                                  className="px-4 py-3 text-right text-sm text-gray-800 dark:text-white"
+                                >
+                                  {row.monthlyMH[monthKey]?.toFixed(2) || '-'}
+                                </td>
+                              );
+                            })
+                          )}
+                          <td className="px-4 py-3 text-right text-sm font-bold text-primary dark:text-white">
+                            {row.totalMH.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
+                      <tr>
+                        <td 
+                          colSpan={4} 
+                          className="px-4 py-3 text-sm font-bold text-gray-800 dark:text-white"
+                        >
+                          Total
+                        </td>
+                        {shouldShowYearGrouping && availableYears.length > 1 ? (
+                          // Show year-grouped totals
+                          availableYears.map(year => (
+                            <React.Fragment key={year}>
+                              {MONTHS.map((_, monthIdx) => {
+                                const monthKey = `${year}-${(monthIdx + 1).toString().padStart(2, '0')}`;
+                                const total = tableData.reduce((sum, row) => sum + (row.monthlyMH[monthKey] || 0), 0);
+                                return (
+                                  <td 
+                                    key={monthKey}
+                                    className="px-2 py-3 text-right text-xs font-bold text-gray-800 dark:text-white border-r border-gray-200 dark:border-gray-700"
+                                  >
+                                    {total > 0 ? total.toFixed(2) : '-'}
+                                  </td>
+                                );
+                              })}
+                            </React.Fragment>
+                          ))
+                        ) : selectedMonth ? (
+                          <td className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white">
+                            {tableData.reduce((sum, row) => sum + (row.monthlyMH[selectedMonth] || 0), 0).toFixed(2)}
+                          </td>
+                        ) : (
+                          MONTHS.map((_, monthIdx) => {
+                            const monthKey = (monthIdx + 1).toString().padStart(2, '0');
+                            const total = tableData.reduce((sum, row) => sum + (row.monthlyMH[monthKey] || 0), 0);
+                            return (
+                              <td 
+                                key={monthKey}
+                                className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white"
+                              >
+                                {total.toFixed(2)}
+                              </td>
+                            );
+                          })
+                        )}
+                        <td className="px-4 py-3 text-right text-sm font-bold text-primary dark:text-white">
+                          {tableData.reduce((sum, row) => sum + row.totalMH, 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        Showing {startIndex + 1} to {Math.min(endIndex, tableData.length)} of {tableData.length} entries
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {/* Previous Button */}
+                        <button
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          disabled={currentPage === 1}
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          <i className="fas fa-chevron-left"></i>
+                        </button>
+
+                        {/* Page Numbers */}
+                        {getPageNumbers().map((page, idx) => (
+                          <React.Fragment key={idx}>
+                            {page === '...' ? (
+                              <span className="px-2 text-gray-500 dark:text-gray-400">...</span>
+                            ) : (
+                              <button
+                                onClick={() => handlePageChange(page as number)}
+                                className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                                  currentPage === page
+                                    ? 'bg-primary text-white'
+                                    : 'border border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
+                                }`}
+                              >
+                                {page}
+                              </button>
+                            )}
+                          </React.Fragment>
+                        ))}
+
+                        {/* Next Button */}
+                        <button
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          disabled={currentPage === totalPages}
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          <i className="fas fa-chevron-right"></i>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+                  <i className="fas fa-table mb-3 text-4xl"></i>
+                  <p>No data available for the selected filters</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

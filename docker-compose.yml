@@ -1,0 +1,54 @@
+
+version: '3'
+services:
+  db:
+    image: postgres:15
+    container_name: veri-analizi-db
+    environment:
+      POSTGRES_DB: veri_analizi
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5431:5431"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: GETTING_START.dockerfile
+    container_name: veri-analizi-web
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/veri_analizi
+      FLASK_ENV: production
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+      - ./instance:/app/instance
+
+  frontend:
+    image: node:20-alpine
+    container_name: veri-analizi-frontend
+    working_dir: /app
+    environment:
+      - VITE_API_URL=http://web:5000
+      - DOCKER_ENV=true
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
