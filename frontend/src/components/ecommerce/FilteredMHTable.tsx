@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { apiFetch } from '../../utils/api';
+import { AgGridReact } from 'ag-grid-react';
+import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
+import '../../styles/ag-grid-custom.css';
+import type { ColDef, GridReadyEvent } from 'ag-grid-community';
+
+// Register AG Grid modules
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 interface FilterOption {
   label: string;
@@ -127,11 +134,16 @@ export default function FilteredMHTable() {
   const [loading, setLoading] = useState(false);
   const [tableData, setTableData] = useState<TableData[]>([]);
   const [filterOptions, setFilterOptions] = useState<{ [key: string]: FilterOption[] }>({});
+  const [validFilterOptions, setValidFilterOptions] = useState<{ [key: string]: string[] }>({});
   const [filters, setFilters] = useState<FilterState>(loadStoredFilters());
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 50; // AG Grid will handle pagination
   const filterDebounceTimer = useRef<number | null>(null);
   const isInitialMount = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const [isFiltering, setIsFiltering] = useState(false);
+  const [activeLozengeFilter, setActiveLozengeFilter] = useState<keyof FilterState | null>(null);
+  const lozengeDropdownRef = useRef<HTMLDivElement>(null);
+  const filterSectionRefs = useRef<{ [key: string]: { scrollTo: () => void; expand: () => void } }>({});
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -163,6 +175,7 @@ export default function FilteredMHTable() {
 
   useEffect(() => {
     fetchFilterOptions();
+    fetchValidFilterOptions();
     fetchTableData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -172,7 +185,24 @@ export default function FilteredMHTable() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedYear, selectedMonth]);
 
-  // Debounced refetch for filters (both options and table data)
+  // Close lozenge dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (lozengeDropdownRef.current && !lozengeDropdownRef.current.contains(event.target as Node)) {
+        setActiveLozengeFilter(null);
+      }
+    };
+
+    if (activeLozengeFilter) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [activeLozengeFilter]);
+
+  // Live filtering with request cancellation
   useEffect(() => {
     // Skip debounce on initial mount
     if (isInitialMount.current) {
@@ -180,17 +210,28 @@ export default function FilteredMHTable() {
       return;
     }
     
-    console.log('[FilteredMHTable] Filters changed, scheduling refetch...');
+    console.log('[FilteredMHTable] Filters changed, scheduling live refetch...');
     
+    // Cancel any pending requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Clear existing timer
     if (filterDebounceTimer.current) {
       clearTimeout(filterDebounceTimer.current);
     }
     
+    // Show filtering indicator immediately
+    setIsFiltering(true);
+    
+    // Reduced debounce for live filtering (150ms for better UX)
     filterDebounceTimer.current = setTimeout(() => {
-      console.log('[FilteredMHTable] Executing scheduled refetch after debounce');
-      fetchFilterOptions();
+      console.log('[FilteredMHTable] Executing live refetch');
+      // Refetch valid options for strikethrough visualization and table data
+      fetchValidFilterOptions();
       fetchTableData();
-    }, 500); // Increased to 500ms debounce
+    }, 150);
     
     return () => {
       if (filterDebounceTimer.current) {
@@ -202,31 +243,69 @@ export default function FilteredMHTable() {
 
   const fetchFilterOptions = async () => {
     try {
+      // Fetch all filter options without cascading (no filters parameter)
+      const result = await apiFetch<{ [key: string]: FilterOption[] }>(
+        `/api/filter-options`
+      );
+      setFilterOptions(result);
+      setIsFiltering(false);
+    } catch (error: unknown) {
+      console.error('[FilteredMHTable] Error fetching filter options:', error);
+      setFilterOptions({});
+      setIsFiltering(false);
+    }
+  };
+
+  const fetchValidFilterOptions = async () => {
+    try {
+      // Fetch valid options based on current filters (for strikethrough visualization)
       const params = new URLSearchParams({
         filters: JSON.stringify(filters),
       });
-      const result = await apiFetch<{ [key: string]: FilterOption[] }>(`/api/filter-options?${params}`);
-      setFilterOptions(result);
-    } catch (error) {
-      console.error('[FilteredMHTable] Error fetching filter options:', error);
-      setFilterOptions({});
+      const result = await apiFetch<{ [key: string]: FilterOption[] }>(
+        `/api/filter-options?${params}`
+      );
+      // Convert to Set of valid values for each filter key
+      const validSets: { [key: string]: string[] } = {};
+      Object.entries(result).forEach(([key, options]) => {
+        validSets[key] = options.map(opt => opt.value);
+      });
+      setValidFilterOptions(validSets);
+    } catch (error: unknown) {
+      console.error('[FilteredMHTable] Error fetching valid filter options:', error);
+      setValidFilterOptions({});
     }
   };
 
   const fetchTableData = async () => {
     try {
       setLoading(true);
+      
+      // Create new AbortController for this request
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+      
       const params = new URLSearchParams({
         year: selectedYear,
         month: selectedMonth,
         filters: JSON.stringify(filters),
       });
-      const result = await apiFetch<{ data: TableData[] }>(`/api/mh-table-data?${params}`);
+      const result = await apiFetch<{ data: TableData[] }>(
+        `/api/mh-table-data?${params}`,
+        { signal: abortController.signal }
+      );
+      console.log('[FilteredMHTable] Table data sample:', result.data?.[0]);
       setTableData(result.data || []);
-      setCurrentPage(1); // Reset to first page when data changes
-    } catch (error) {
+      setIsFiltering(false);
+    } catch (error: unknown) {
+      // Don't log abort errors as they're expected
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[FilteredMHTable] Table data request cancelled');
+        return;
+      }
       console.error('[FilteredMHTable] Error fetching table data:', error);
       setTableData([]);
+      setIsFiltering(false);
     } finally {
       setLoading(false);
     }
@@ -265,7 +344,6 @@ export default function FilteredMHTable() {
       lsUnitRate: [],
     };
     setFilters(emptyFilters);
-    setCurrentPage(1); // Reset to first page when filters are cleared
     
     // Also clear from localStorage
     try {
@@ -276,92 +354,208 @@ export default function FilteredMHTable() {
     }
   };
 
-  // Pagination calculations
-  const totalPages = Math.ceil(tableData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedData = tableData.slice(startIndex, endIndex);
+  // Pagination calculations - not needed for AG Grid
+  // const totalPages = Math.ceil(tableData.length / itemsPerPage);
+  // const startIndex = (currentPage - 1) * itemsPerPage;
+  // const endIndex = startIndex + itemsPerPage;
+  // const paginatedData = tableData.slice(startIndex, endIndex);
 
-  // Determine available years from the data
+  // Determine available years from the data - not needed for AG Grid
+  // const availableYears = useMemo(() => { ... }, [tableData]);
+
+  // When "All Years" is selected, show year-grouped columns - not needed for AG Grid
+  // const shouldShowYearGrouping = !selectedYear && !selectedMonth;
+
+  // Extract available years from table data
   const availableYears = useMemo(() => {
-    if (!tableData.length) return [];
+    if (!tableData || tableData.length === 0) return [];
     
     const yearsSet = new Set<string>();
     tableData.forEach(row => {
-      Object.keys(row.monthlyMH).forEach(monthKey => {
-        // monthKey format is assumed to be "YYYY-MM" or we need to extract year from somewhere
-        // Since we only have month keys like "01", "02", etc., we need to check YEARS array
-        // Let's check which years actually have data by looking at the filter or available years
-      });
+      if (row.monthlyMH) {
+        Object.keys(row.monthlyMH).forEach(key => {
+          // Extract year from keys like "2026-01", "2025-12"
+          if (key.includes('-')) {
+            const year = key.split('-')[0];
+            if (year && year.length === 4) {
+              yearsSet.add(year);
+            }
+          }
+        });
+      }
     });
     
-    // For now, return years that are in our YEARS constant and filter if needed
-    return YEARS.filter(year => {
-      // Check if any row has data for this year
-      // This is a simplified check - in reality you'd want to parse actual dates
-      return true; // Return all years for now, backend should filter
-    });
+    return Array.from(yearsSet).sort();
   }, [tableData]);
 
-  // When "All Years" is selected, show year-grouped columns
-  const shouldShowYearGrouping = !selectedYear && !selectedMonth;
+  // AG Grid column definitions
+  const columnDefs = useMemo<ColDef[]>(() => {
+    const baseCols: ColDef[] = [
+      {
+        field: 'nameSurname',
+        headerName: 'Name',
+        pinned: 'left',
+        width: 180,
+        filter: 'agTextColumnFilter',
+        floatingFilter: true,
+        cellClass: 'font-semibold text-gray-800 dark:text-white',
+      },
+      {
+        field: 'discipline',
+        headerName: 'Discipline',
+        width: 150,
+        filter: 'agTextColumnFilter',
+        floatingFilter: true,
+      },
+      {
+        field: 'company',
+        headerName: 'Company',
+        width: 130,
+        filter: 'agTextColumnFilter',
+        floatingFilter: true,
+      },
+      {
+        field: 'projectsGroup',
+        headerName: 'Projects/Group',
+        width: 150,
+        filter: 'agTextColumnFilter',
+        floatingFilter: true,
+      },
+    ];
 
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
-  };
-
-  // Generate page numbers for pagination
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    const maxVisible = 5; // Maximum number of page buttons to show
-
-    if (totalPages <= maxVisible) {
-      // Show all pages if total is less than max
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
+    const monthCols: ColDef[] = [];
+    
+    if (selectedMonth) {
+      // Single month view
+      monthCols.push({
+        field: `month_${selectedMonth}`,
+        headerName: `${MONTHS[parseInt(selectedMonth) - 1]} ${selectedYear} MH`,
+        width: 130,
+        type: 'numericColumn',
+        valueGetter: (params) => {
+          const value = params.data?.monthlyMH?.[selectedMonth];
+          return value !== undefined && value !== null ? value : 0;
+        },
+        valueFormatter: (params) => {
+          const val = params.value;
+          return val !== undefined && val !== null && val !== 0 ? val.toFixed(2) : '0.00';
+        },
+        cellClass: 'text-right font-semibold',
+        filter: 'agNumberColumnFilter',
+      });
+    } else if (selectedYear) {
+      // Specific year, all months view
+      MONTHS.forEach((month, idx) => {
+        const monthKey = (idx + 1).toString().padStart(2, '0');
+        monthCols.push({
+          field: `month_${monthKey}`,
+          headerName: month.slice(0, 3),
+          width: 90,
+          type: 'numericColumn',
+          valueGetter: (params) => {
+            const monthlyMH = params.data?.monthlyMH;
+            if (!monthlyMH) return null;
+            const value = monthlyMH[monthKey];
+            return value !== undefined && value !== null ? value : null;
+          },
+          valueFormatter: (params) => {
+            const val = params.value;
+            return val !== undefined && val !== null && val !== 0 ? val.toFixed(2) : '-';
+          },
+          cellClass: 'text-right',
+          filter: 'agNumberColumnFilter',
+        });
+      });
     } else {
-      // Always show first page
-      pages.push(1);
-
-      if (currentPage > 3) {
-        pages.push('...');
-      }
-
-      // Show pages around current page
-      const start = Math.max(2, currentPage - 1);
-      const end = Math.min(totalPages - 1, currentPage + 1);
-
-      for (let i = start; i <= end; i++) {
-        pages.push(i);
-      }
-
-      if (currentPage < totalPages - 2) {
-        pages.push('...');
-      }
-
-      // Always show last page
-      pages.push(totalPages);
+      // All years view - create grouped columns by year
+      availableYears.forEach(year => {
+        const yearChildren: ColDef[] = [];
+        
+        MONTHS.forEach((month, idx) => {
+          const monthKey = (idx + 1).toString().padStart(2, '0');
+          const yearMonthKey = `${year}-${monthKey}`;
+          
+          yearChildren.push({
+            field: `year_${year}_month_${monthKey}`,
+            headerName: month.slice(0, 3),
+            width: 90,
+            type: 'numericColumn',
+            valueGetter: (params) => {
+              const monthlyMH = params.data?.monthlyMH;
+              if (!monthlyMH) return null;
+              const value = monthlyMH[yearMonthKey];
+              return value !== undefined && value !== null ? value : null;
+            },
+            valueFormatter: (params) => {
+              const val = params.value;
+              return val !== undefined && val !== null && val !== 0 ? val.toFixed(2) : '-';
+            },
+            cellClass: 'text-right',
+            filter: 'agNumberColumnFilter',
+          });
+        });
+        
+        // Add year group column
+        monthCols.push({
+          headerName: year,
+          children: yearChildren,
+          marryChildren: true,
+        });
+      });
     }
 
-    return pages;
+    const totalCol: ColDef = {
+      field: 'totalMH',
+      headerName: 'Total MH',
+      pinned: 'right',
+      width: 120,
+      type: 'numericColumn',
+      valueFormatter: (params) => params.value ? params.value.toFixed(2) : '0.00',
+      cellClass: 'text-right font-bold text-primary dark:text-white',
+      filter: 'agNumberColumnFilter',
+    };
+
+    return [...baseCols, ...monthCols, totalCol];
+  }, [selectedMonth, selectedYear, availableYears]);
+
+  // AG Grid default column definition
+  const defaultColDef = useMemo<ColDef>(() => ({
+    sortable: true,
+    resizable: true,
+    filter: true,
+    cellClass: 'text-sm',
+  }), []);
+
+  // AG Grid ready event
+  const onGridReady = (params: GridReadyEvent) => {
+    // Auto-size columns to fit content on first load
+    params.api.autoSizeAllColumns(false);
   };
 
-  const FilterSection = React.memo(({ 
-    title, 
-    filterKey, 
-    options 
-  }: { 
+  const FilterSection = React.memo(React.forwardRef<any, { 
     title: string; 
     filterKey: keyof FilterState; 
     options: FilterOption[] 
-  }) => {
+  }>(({ 
+    title, 
+    filterKey, 
+    options 
+  }, ref) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const selectedValues = filters[filterKey];
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const sectionRef = useRef<HTMLDivElement>(null);
+
+    // Expose methods to parent via ref
+    React.useImperativeHandle(ref, () => ({
+      scrollTo: () => {
+        sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+      expand: () => {
+        setIsExpanded(true);
+      }
+    }));
 
     // Use Set for faster lookup
     const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
@@ -391,8 +585,8 @@ export default function FilteredMHTable() {
     }, [isExpanded]);
 
     return (
-      <div className="mb-3" ref={dropdownRef}>
-        <div className="relative">
+      <div className="mb-3" ref={sectionRef}>
+        <div className="relative" ref={dropdownRef}>
           {/* Trigger Button */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
@@ -454,6 +648,7 @@ export default function FilteredMHTable() {
                 {filteredOptions.length > 0 ? (
                   filteredOptions.map(option => {
                     const isSelected = selectedSet.has(option.value);
+                    const isValid = !validFilterOptions[filterKey] || validFilterOptions[filterKey].includes(option.value) || isSelected;
                     return (
                       <div
                         key={option.value}
@@ -461,12 +656,22 @@ export default function FilteredMHTable() {
                           e.stopPropagation();
                           handleFilterChange(filterKey, option.value);
                         }}
-                        className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                        className={`flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                          isValid 
+                            ? 'text-gray-700 dark:text-gray-200' 
+                            : 'text-gray-400 dark:text-gray-500'
+                        }`}
+                        title={!isValid ? 'No data available with current filters' : ''}
                       >
-                        <span>{option.label}</span>
-                        {isSelected && (
-                          <i className="fas fa-check text-primary"></i>
-                        )}
+                        <span className={!isValid ? 'line-through' : ''}>{option.label}</span>
+                        <div className="flex items-center gap-2">
+                          {!isValid && (
+                            <i className="fas fa-ban text-xs text-gray-400"></i>
+                          )}
+                          {isSelected && (
+                            <i className="fas fa-check text-primary"></i>
+                          )}
+                        </div>
                       </div>
                     );
                   })
@@ -481,14 +686,20 @@ export default function FilteredMHTable() {
         </div>
       </div>
     );
-  });
+  }));
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="border-b border-gray-200 px-6 py-4 dark:border-gray-800">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90 flex items-center gap-3">
             📊 Man-Hour Analysis by Filters
+            {isFiltering && (
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                <i className="fas fa-sync fa-spin"></i>
+                Updating...
+              </span>
+            )}
           </h3>
           <div className="flex gap-3">
             {/* Year Selector */}
@@ -527,29 +738,128 @@ export default function FilteredMHTable() {
           </div>
         </div>
 
-        {/* Active Filters Display */}
+        {/* Active Filters Display with Additive Lozenges */}
         {Object.entries(filters).some(([, values]) => values.length > 0) && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {Object.entries(filters).map(([filterKey, values]) => {
-              if (values.length === 0) return null;
-              
-              return values.map((value: string) => (
-                <span
-                  key={`${filterKey}-${value}`}
-                  className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-white"
-                >
-                  <span className="text-xs opacity-75">{FILTER_LABELS[filterKey]}:</span>
-                  <span>{value}</span>
-                  <button
-                    onClick={() => handleFilterChange(filterKey as keyof FilterState, value)}
-                    className="hover:text-gray-200"
-                    title="Remove filter"
-                  >
-                    <i className="fas fa-times text-xs"></i>
-                  </button>
-                </span>
-              ));
-            })}
+          <div className="mt-4">
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(filters).map(([filterKey, values]) => {
+                if (values.length === 0) return null;
+                const typedFilterKey = filterKey as keyof FilterState;
+                
+                return (
+                  <div key={filterKey} className="relative inline-flex" ref={activeLozengeFilter === typedFilterKey ? lozengeDropdownRef : null}>
+                    {/* Filter Category Lozenge */}
+                    <button
+                      onClick={() => {
+                        if (activeLozengeFilter === typedFilterKey) {
+                          setActiveLozengeFilter(null);
+                        } else {
+                          setActiveLozengeFilter(typedFilterKey);
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 rounded-l-full bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+                      title="Click to add more values"
+                    >
+                      <span className="text-xs opacity-90">{FILTER_LABELS[filterKey]}:</span>
+                      <span className="font-semibold">{values.length}</span>
+                      <i className={`fas fa-chevron-${activeLozengeFilter === typedFilterKey ? 'up' : 'down'} text-xs`}></i>
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Clear all values for this filter
+                        setFilters(prev => ({ ...prev, [filterKey]: [] }));
+                        setActiveLozengeFilter(null);
+                      }}
+                      className="inline-flex items-center rounded-r-full bg-primary px-2 py-1.5 text-white hover:bg-red-600 transition-colors border-l border-white/20"
+                      title="Remove all from this category"
+                    >
+                      <i className="fas fa-times text-xs"></i>
+                    </button>
+
+                    {/* Additive Dropdown */}
+                    {activeLozengeFilter === typedFilterKey && (
+                      <div className="absolute top-full left-0 mt-2 w-80 z-50 rounded-lg border border-gray-300 bg-white shadow-2xl dark:border-gray-600 dark:bg-gray-800">
+                        <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                              {FILTER_LABELS[filterKey]}
+                            </span>
+                            <button
+                              onClick={() => setActiveLozengeFilter(null)}
+                              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                            >
+                              <i className="fas fa-times"></i>
+                            </button>
+                          </div>
+                          {/* Selected Values */}
+                          <div className="flex flex-wrap gap-1">
+                            {values.map((value: string) => (
+                              <span
+                                key={value}
+                                className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-1 text-xs text-blue-700 dark:text-blue-400"
+                              >
+                                {value}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleFilterChange(typedFilterKey, value);
+                                  }}
+                                  className="hover:text-blue-900 dark:hover:text-blue-200"
+                                >
+                                  <i className="fas fa-times text-xs"></i>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Available Options */}
+                        <div className="max-h-60 overflow-y-auto p-2">
+                          {(filterOptions[typedFilterKey] || []).filter(opt => !values.includes(opt.value)).length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+                                Add more:
+                              </div>
+                              {(filterOptions[typedFilterKey] || [])
+                                .filter(opt => !values.includes(opt.value))
+                                .map(option => {
+                                  const isValid = !validFilterOptions[typedFilterKey] || validFilterOptions[typedFilterKey].includes(option.value);
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      onClick={() => {
+                                        handleFilterChange(typedFilterKey, option.value);
+                                      }}
+                                      disabled={!isValid}
+                                      className={`w-full text-left px-3 py-2 text-sm rounded flex items-center justify-between group ${
+                                        isValid
+                                          ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer'
+                                          : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                                      }`}
+                                      title={!isValid ? 'No data available with current filters' : 'Click to add'}
+                                    >
+                                      <span className={!isValid ? 'line-through' : ''}>{option.label}</span>
+                                      {isValid ? (
+                                        <i className="fas fa-plus text-xs text-gray-400 group-hover:text-primary"></i>
+                                      ) : (
+                                        <i className="fas fa-ban text-xs text-gray-400"></i>
+                                      )}
+                                    </button>
+                                  );
+                                })
+                              }
+                            </div>
+                          ) : (
+                            <div className="px-3 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                              All options selected
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -577,16 +887,19 @@ export default function FilteredMHTable() {
                 </h4>
 
                 <FilterSection 
+                  ref={(el) => { if (el) filterSectionRefs.current['nameSurname'] = el; }}
                   title="Name Surname" 
                   filterKey="nameSurname" 
                   options={filterOptions.nameSurname || []} 
                 />
                 <FilterSection 
+                  ref={(el) => { if (el) filterSectionRefs.current['discipline'] = el; }}
                   title="Discipline" 
                   filterKey="discipline" 
                   options={filterOptions.discipline || []} 
                 />
                 <FilterSection 
+                  ref={(el) => { if (el) filterSectionRefs.current['company'] = el; }}
                   title="Company" 
                   filterKey="company" 
                   options={filterOptions.company || []} 
@@ -666,253 +979,34 @@ export default function FilteredMHTable() {
           </div>
         </div>
 
-        {/* Table Content */}
-        <div className="flex-1 overflow-x-auto">
+        {/* AG Grid Table Content */}
+        <div className="flex-1 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
             </div>
           ) : (
-            <div className="p-6">
+            <div className="h-full p-6">
               {tableData.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
-                      {shouldShowYearGrouping && availableYears.length > 1 ? (
-                        <>
-                          {/* Year header row */}
-                          <tr>
-                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
-                              Name
-                            </th>
-                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
-                              Discipline
-                            </th>
-                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
-                              Company
-                            </th>
-                            <th rowSpan={2} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600">
-                              Projects/Group
-                            </th>
-                            {availableYears.map(year => (
-                              <th 
-                                key={year}
-                                colSpan={12}
-                                className="px-4 py-2 text-center text-sm font-bold text-gray-800 dark:text-gray-200 border-r border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700"
-                              >
-                                {year}
-                              </th>
-                            ))}
-                            <th rowSpan={2} className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
-                              Total MH
-                            </th>
-                          </tr>
-                          {/* Month header row */}
-                          <tr>
-                            {availableYears.map(year => (
-                              <React.Fragment key={year}>
-                                {MONTHS.map((month) => (
-                                  <th 
-                                    key={`${year}-${month}`}
-                                    className="px-2 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-gray-700"
-                                  >
-                                    {month.slice(0, 3)}
-                                  </th>
-                                ))}
-                              </React.Fragment>
-                            ))}
-                          </tr>
-                        </>
-                      ) : (
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                            Name
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                            Discipline
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                            Company
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                            Projects/Group
-                          </th>
-                          {selectedMonth ? (
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
-                              {MONTHS[parseInt(selectedMonth) - 1]} {selectedYear} MH
-                            </th>
-                          ) : (
-                            MONTHS.map((month) => (
-                              <th 
-                                key={month}
-                                className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300"
-                              >
-                                {month.slice(0, 3)}
-                              </th>
-                            ))
-                          )}
-                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
-                            Total MH
-                          </th>
-                        </tr>
-                      )}
-                    </thead>
-                    <tbody>
-                      {paginatedData.map((row, idx) => (
-                        <tr 
-                          key={startIndex + idx}
-                          className="border-b border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/30"
-                        >
-                          <td className="px-4 py-3 text-sm text-gray-800 dark:text-white">
-                            {row.nameSurname}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
-                            {row.discipline}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
-                            {row.company}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
-                            {row.projectsGroup}
-                          </td>
-                          {shouldShowYearGrouping && availableYears.length > 1 ? (
-                            // Show year-grouped columns
-                            availableYears.map(year => (
-                              <React.Fragment key={year}>
-                                {MONTHS.map((_, monthIdx) => {
-                                  const monthKey = `${year}-${(monthIdx + 1).toString().padStart(2, '0')}`;
-                                  return (
-                                    <td 
-                                      key={monthKey}
-                                      className="px-2 py-3 text-right text-xs text-gray-800 dark:text-white border-r border-gray-200 dark:border-gray-700"
-                                    >
-                                      {row.monthlyMH[monthKey]?.toFixed(2) || '-'}
-                                    </td>
-                                  );
-                                })}
-                              </React.Fragment>
-                            ))
-                          ) : selectedMonth ? (
-                            <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800 dark:text-white">
-                              {row.monthlyMH[selectedMonth]?.toFixed(2) || '0.00'}
-                            </td>
-                          ) : (
-                            MONTHS.map((_, monthIdx) => {
-                              const monthKey = (monthIdx + 1).toString().padStart(2, '0');
-                              return (
-                                <td 
-                                  key={monthKey}
-                                  className="px-4 py-3 text-right text-sm text-gray-800 dark:text-white"
-                                >
-                                  {row.monthlyMH[monthKey]?.toFixed(2) || '-'}
-                                </td>
-                              );
-                            })
-                          )}
-                          <td className="px-4 py-3 text-right text-sm font-bold text-primary dark:text-white">
-                            {row.totalMH.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="border-t-2 border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                      <tr>
-                        <td 
-                          colSpan={4} 
-                          className="px-4 py-3 text-sm font-bold text-gray-800 dark:text-white"
-                        >
-                          Total
-                        </td>
-                        {shouldShowYearGrouping && availableYears.length > 1 ? (
-                          // Show year-grouped totals
-                          availableYears.map(year => (
-                            <React.Fragment key={year}>
-                              {MONTHS.map((_, monthIdx) => {
-                                const monthKey = `${year}-${(monthIdx + 1).toString().padStart(2, '0')}`;
-                                const total = tableData.reduce((sum, row) => sum + (row.monthlyMH[monthKey] || 0), 0);
-                                return (
-                                  <td 
-                                    key={monthKey}
-                                    className="px-2 py-3 text-right text-xs font-bold text-gray-800 dark:text-white border-r border-gray-200 dark:border-gray-700"
-                                  >
-                                    {total > 0 ? total.toFixed(2) : '-'}
-                                  </td>
-                                );
-                              })}
-                            </React.Fragment>
-                          ))
-                        ) : selectedMonth ? (
-                          <td className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white">
-                            {tableData.reduce((sum, row) => sum + (row.monthlyMH[selectedMonth] || 0), 0).toFixed(2)}
-                          </td>
-                        ) : (
-                          MONTHS.map((_, monthIdx) => {
-                            const monthKey = (monthIdx + 1).toString().padStart(2, '0');
-                            const total = tableData.reduce((sum, row) => sum + (row.monthlyMH[monthKey] || 0), 0);
-                            return (
-                              <td 
-                                key={monthKey}
-                                className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white"
-                              >
-                                {total.toFixed(2)}
-                              </td>
-                            );
-                          })
-                        )}
-                        <td className="px-4 py-3 text-right text-sm font-bold text-primary dark:text-white">
-                          {tableData.reduce((sum, row) => sum + row.totalMH, 0).toFixed(2)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-
-                  {/* Pagination Controls */}
-                  {totalPages > 1 && (
-                    <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">
-                      <div className="text-sm text-gray-600 dark:text-gray-400">
-                        Showing {startIndex + 1} to {Math.min(endIndex, tableData.length)} of {tableData.length} entries
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {/* Previous Button */}
-                        <button
-                          onClick={() => handlePageChange(currentPage - 1)}
-                          disabled={currentPage === 1}
-                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                        >
-                          <i className="fas fa-chevron-left"></i>
-                        </button>
-
-                        {/* Page Numbers */}
-                        {getPageNumbers().map((page, idx) => (
-                          <React.Fragment key={idx}>
-                            {page === '...' ? (
-                              <span className="px-2 text-gray-500 dark:text-gray-400">...</span>
-                            ) : (
-                              <button
-                                onClick={() => handlePageChange(page as number)}
-                                className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                                  currentPage === page
-                                    ? 'bg-primary text-white'
-                                    : 'border border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
-                                }`}
-                              >
-                                {page}
-                              </button>
-                            )}
-                          </React.Fragment>
-                        ))}
-
-                        {/* Next Button */}
-                        <button
-                          onClick={() => handlePageChange(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                        >
-                          <i className="fas fa-chevron-right"></i>
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                <div className="ag-theme-alpine-dark h-[600px] w-full">
+                  <AgGridReact
+                    rowData={tableData}
+                    columnDefs={columnDefs}
+                    defaultColDef={defaultColDef}
+                    pagination={true}
+                    paginationPageSize={itemsPerPage}
+                    paginationPageSizeSelector={[10, 25, 50, 100]}
+                    onGridReady={onGridReady}
+                    domLayout='normal'
+                    enableCellTextSelection={true}
+                    ensureDomOrder={true}
+                    animateRows={true}
+                    rowSelection={{ mode: 'multiRow' }}
+                    suppressMovableColumns={false}
+                    suppressMenuHide={false}
+                    tooltipShowDelay={500}
+                    theme="legacy"
+                  />
                 </div>
               ) : (
                 <div className="py-12 text-center text-gray-500 dark:text-gray-400">

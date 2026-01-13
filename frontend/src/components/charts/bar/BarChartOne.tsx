@@ -419,7 +419,18 @@ export default function StatisticsChart() {
       const val = (/(Tarih|Date|Week|Month)/i.test(useX as string)) ? parseDateToCategory(raw) : String(raw ?? '');
       if (!seen.has(val)) { seen.add(val); cats.push(val); }
     }
-    const categories = cats.length ? cats : monthNames.slice();
+    
+    // Sort categories by month order if they are month names
+    const sortedCats = cats.length ? cats.sort((a, b) => {
+      const aIdx = monthNames.indexOf(a);
+      const bIdx = monthNames.indexOf(b);
+      // If both are valid month names, sort by month order
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      // Otherwise keep original order
+      return 0;
+    }) : monthNames.slice();
+    
+    const categories = sortedCats;
 
     const agg: Record<string, number[]> = {};
     for (const r of recs) {
@@ -779,7 +790,9 @@ export default function StatisticsChart() {
                                           enabled: true,
                                           y: {
                                             formatter: function (val: number) {
-                                              return "$" + val.toLocaleString();
+                                              const currentYField = panelCfg.yField || yField || 'KAR/ZARAR';
+                                              const isCurrency = currentYField === 'KAR/ZARAR' || currentYField.toLowerCase().includes('cost') || currentYField.toLowerCase().includes('usd') || currentYField.toLowerCase().includes('price') || currentYField.toLowerCase().includes('hakediş');
+                                              return isCurrency ? "$" + val.toLocaleString() : val.toLocaleString();
                                             },
                                           },
                                         },
@@ -888,7 +901,9 @@ export default function StatisticsChart() {
                                 enabled: true,
                                 y: {
                                   formatter: function (val: number) {
-                                    return "$" + val.toLocaleString();
+                                    const currentYField = yField || 'KAR/ZARAR';
+                                    const isCurrency = currentYField === 'KAR/ZARAR' || currentYField.toLowerCase().includes('cost') || currentYField.toLowerCase().includes('usd') || currentYField.toLowerCase().includes('price') || currentYField.toLowerCase().includes('hakediş');
+                                    return isCurrency ? "$" + val.toLocaleString() : val.toLocaleString();
                                   },
                                 },
                               },
