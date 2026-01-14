@@ -74,8 +74,8 @@ export default function CompanyTable() {
                                     {rows.map((row, idx) => (
                                         <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
                                             <td className="px-4 py-2 text-gray-800 dark:text-white">{row.Company}</td>
-                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.KAR_ZARAR}</td>
-                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.TOTAL_MH}</td>
+                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.KAR_ZARAR.toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.TOTAL_MH.toFixed(2)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -85,12 +85,7 @@ export default function CompanyTable() {
                 </div>
 
                 {/* Pie Chart Section */}
-                <div className="lg:w-80 flex-shrink-0">
-                    <h4 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Şirkete Göre Çalışan Dağılımı</h4>
-                    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-3">
-                        <PieChart />
-                    </div>
-                </div>
+                
             </div>
         </div>
     );

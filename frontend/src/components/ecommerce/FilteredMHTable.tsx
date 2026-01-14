@@ -876,8 +876,9 @@ export default function FilteredMHTable() {
               onClick={() => setFiltersExpanded(!filtersExpanded)}
               className="w-full border-b border-gray-200 p-3 text-center hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
               title={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
-            >
+            > 
               <i className={`fas fa-${filtersExpanded ? 'angle-left' : 'angle-right'}`}></i>
+              <p className = "text-white ">...</p>
             </button>
 
             {filtersExpanded && (
