@@ -1,43 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AgGridReact } from 'ag-grid-react';
-import { ColDef, ColGroupDef, ModuleRegistry, AllCommunityModule, themeQuartz, RowDragEvent } from 'ag-grid-community';
+import { ColDef, ColGroupDef } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
-import './FilteredMHTable.css';
+import 'ag-grid-community/styles/ag-theme-quartz.css';
 import { apiFetch } from '../../utils/api';
-
-// Register AG Grid modules
-ModuleRegistry.registerModules([AllCommunityModule]);
-
-// Create custom dark theme matching the reference image exactly
-const myTheme = themeQuartz.withParams({
-  backgroundColor: "#1a2332",
-  browserColorScheme: "dark",
-  chromeBackgroundColor: "#1a2332",
-  foregroundColor: "#FFF",
-  headerFontSize: 13,
-  headerBackgroundColor: "#1a2332",
-  headerTextColor: "#94a3b8",
-  oddRowBackgroundColor: "#1a2332",
-  rowHoverColor: "#253344",
-  borderColor: "#2d3748",
-  cellHorizontalPaddingScale: 0.8,
-  headerColumnResizeHandleColor: "#4a5568",
-  inputBackgroundColor: "#0f1722",
-  inputBorder: true,
-  inputTextColor: "#ffffff",
-  filterToolPanelGroupIndent: 8,
-  rowBorder: true,
-  columnBorder: true,
-  wrapperBorder: true,
-  wrapperBorderRadius: 0,
-  sidePanelBorder: false,
-  headerColumnBorder: true,
-  headerRowBorder: true,
-  pinnedRowBorder: true,
-  pinnedColumnBorder: true,
-  spacing: 6,
-  fontSize: 13,
-});
 
 interface FilterOption {
   label: string;
@@ -93,7 +59,7 @@ const MONTHS = [
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const YEARS = ['2023', '2024', '2025'];
+const YEARS = ['2023', '2024', '2025', '2026'];
 
 const FILTER_LABELS: { [key: string]: string } = {
   nameSurname: 'Name',
@@ -275,42 +241,30 @@ export default function FilteredMHTable() {
         field: 'nameSurname',
         pinned: 'left',
         width: 200,
-        minWidth: 150,
         filter: 'agTextColumnFilter',
         sortable: true,
         cellStyle: { fontWeight: 500 },
-        floatingFilter: true,
-        suppressMovable: false,
       },
       {
         headerName: 'Discipline',
         field: 'discipline',
         width: 150,
-        minWidth: 120,
         filter: 'agTextColumnFilter',
         sortable: true,
-        floatingFilter: true,
-        suppressMovable: false,
       },
       {
         headerName: 'Company',
         field: 'company',
         width: 150,
-        minWidth: 120,
         filter: 'agTextColumnFilter',
         sortable: true,
-        floatingFilter: true,
-        suppressMovable: false,
       },
       {
         headerName: 'Projects/Group',
         field: 'projectsGroup',
         width: 180,
-        minWidth: 140,
         filter: 'agTextColumnFilter',
         sortable: true,
-        floatingFilter: true,
-        suppressMovable: false,
       },
     ];
 
@@ -326,17 +280,13 @@ export default function FilteredMHTable() {
           return {
             headerName: monthName,
             field: fieldName,
-            width: 100,
-            minWidth: 80,
+            width: 80,
             type: 'numericColumn',
-            filter: 'agNumberColumnFilter',
-            floatingFilter: true,
             valueFormatter: (params: any) => {
               return params.value != null ? Number(params.value).toFixed(2) : '-';
             },
             cellStyle: { textAlign: 'right' },
             aggFunc: 'sum',
-            suppressMovable: false,
           } as ColDef;
         }),
       }));
@@ -349,10 +299,7 @@ export default function FilteredMHTable() {
           field: 'totalMH',
           pinned: 'right',
           width: 120,
-          minWidth: 100,
           type: 'numericColumn',
-          filter: 'agNumberColumnFilter',
-          floatingFilter: true,
           valueFormatter: (params: any) => Number(params.value).toFixed(2),
           cellStyle: { fontWeight: 'bold', textAlign: 'right', color: '#3b82f6' },
           aggFunc: 'sum',
@@ -368,16 +315,12 @@ export default function FilteredMHTable() {
         headerName: monthName,
         field: monthKey,
         width: 100,
-        minWidth: 80,
         type: 'numericColumn',
-        filter: 'agNumberColumnFilter',
-        floatingFilter: true,
         valueFormatter: (params: any) => {
           return params.value != null ? Number(params.value).toFixed(2) : '-';
         },
         cellStyle: { textAlign: 'right' },
         aggFunc: 'sum',
-        suppressMovable: false,
       };
     });
 
@@ -389,10 +332,7 @@ export default function FilteredMHTable() {
         field: 'totalMH',
         pinned: 'right',
         width: 120,
-        minWidth: 100,
         type: 'numericColumn',
-        filter: 'agNumberColumnFilter',
-        floatingFilter: true,
         valueFormatter: (params: any) => Number(params.value).toFixed(2),
         cellStyle: { fontWeight: 'bold', textAlign: 'right', color: '#3b82f6' },
         aggFunc: 'sum',
@@ -400,35 +340,12 @@ export default function FilteredMHTable() {
     ];
   }, [selectedYear]);
 
-  // Default column definitions with floating filters (search bars below headers)
+  // Default column definitions
   const defaultColDef = useMemo<ColDef>(() => ({
     resizable: true,
     sortable: true,
     filter: true,
-    floatingFilter: true,
-    suppressHeaderMenuButton: false,
-    suppressHeaderFilterButton: false,
-    headerComponentParams: {
-      menuIcon: 'fa-bars',
-    },
-    minWidth: 100,
-    flex: 1,
   }), []);
-
-  // Grid reference for drag operations
-  const gridRef = useRef<AgGridReact>(null);
-
-  // Handle row drag end
-  const onRowDragEnd = useCallback((event: RowDragEvent) => {
-    // Row order changed, you can persist this if needed
-    console.log('Row drag ended:', event);
-  }, []);
-
-  // Handle column moved
-  const onColumnMoved = useCallback((event: any) => {
-    // Column order changed
-    console.log('Column moved:', event);
-  }, []);
 
   const FilterSection = React.memo(({ 
     title, 
@@ -754,10 +671,8 @@ export default function FilteredMHTable() {
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
             </div>
           ) : (
-            <div style={{ height: 600, width: '100%' }} className="custom-ag-grid">
+            <div className="ag-theme-quartz" style={{ height: 600, width: '100%' }}>
               <AgGridReact
-                ref={gridRef}
-                theme={myTheme}
                 rowData={gridRowData}
                 columnDefs={columnDefs}
                 defaultColDef={defaultColDef}
@@ -769,18 +684,8 @@ export default function FilteredMHTable() {
                 animateRows={true}
                 rowHeight={40}
                 headerHeight={40}
-                floatingFiltersHeight={38}
                 suppressMovableColumns={false}
-                rowDragManaged={true}
-                rowDragEntireRow={false}
-                rowDragMultiRow={true}
-                onRowDragEnd={onRowDragEnd}
-                onColumnMoved={onColumnMoved}
-                suppressDragLeaveHidesColumns={true}
                 enableRangeSelection={true}
-                rowSelection="multiple"
-                suppressRowClickSelection={true}
-                getRowId={(params) => params.data.nameSurname}
               />
             </div>
           )}

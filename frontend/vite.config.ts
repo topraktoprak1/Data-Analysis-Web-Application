@@ -18,8 +18,15 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy API requests to the Flask backend during development
-      '/api': 'http://localhost:5000',
-      '/upload': 'http://localhost:5000'
+      // In Docker production, nginx handles this
+      '/api': {
+        target: process.env.VITE_API_URL || 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      '/upload': {
+        target: process.env.VITE_API_URL || 'http://localhost:5000',
+        changeOrigin: true,
+      }
     }
   }
 });

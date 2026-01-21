@@ -1,0 +1,82 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+instance/
+
+# Uploads and data
+uploads/
+backups/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend build
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Git
+.git/
+.gitignore
+
+# Documentation that doesn't need to be in the image
+*.md
+!README.md
+
+# Test files
+test_*.py
+*_test.py
+tests/
+
+# Backup files
+*.bak
+*.backup
+*backup.py
+*.old
+
+# Bootstrap Studio files
+*.bsdesign
+Bootstrap Studio Backups/
+
+# Docker files (we don't need these inside the container)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Scripts
+scripts/
+*.bat
+*.ps1
+
+# Cube.js backend
+cubejs-backend/

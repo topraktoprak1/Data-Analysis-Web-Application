@@ -39,6 +39,19 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 
 
+@app.route('/api/health')
+def health_check():
+    """Health check endpoint for Docker and monitoring"""
+    try:
+        # Check database connection using SQLAlchemy 2.x syntax
+        from sqlalchemy import text
+        db.session.execute(text('SELECT 1'))
+        db.session.commit()
+        return jsonify({"status": "healthy", "database": "connected"}), 200
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "error": str(e)}), 503
+
+
 @app.route('/')
 def root_data():
     print(f"[LOG] Received request for / from {request.remote_addr} Origin: {request.headers.get('Origin')}")
@@ -291,7 +304,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour (3600 seconds)
 # For local development, use: postgresql://username:password@localhost:5432/database_name
 # For production, use environment variable
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 
-    'postgresql://postgres:1234@localhost:8080/veri_analizi')
+    'postgresql://postgres:85758.As@localhost:5432/veri_analizi')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_size': 10,
@@ -2165,6 +2178,47 @@ def forgot_password():
     return render_template('forgot-password.html')
 
 # API Routes
+@app.route('/api/user', methods=['GET'])
+def get_current_user():
+    """Get current logged-in user info"""
+    try:
+        # Check if user is logged in
+        if 'user_id' not in session and 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+            
+        user_id = session.get('user_id')
+        if user_id:
+            user = User.query.get(user_id)
+            if user:
+                return jsonify({
+                    'id': user.id,
+                    'username': user.username,
+                    'name': user.name,
+                    'role': user.role
+                })
+        return jsonify({
+            'username': session.get('user'),
+            'name': session.get('name'),
+            'role': session.get('role')
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin', methods=['GET'])
+def get_admin_info():
+    """Get admin user info"""
+    try:
+        admin = User.query.filter_by(role='admin').first()
+        if admin:
+            return jsonify({
+                'username': admin.username,
+                'name': admin.name,
+                'role': admin.role
+            })
+        return jsonify({'error': 'Admin not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/check-session', methods=['GET'])
 @login_required
 def check_session():
@@ -4931,6 +4985,10 @@ def get_mh_table_data():
                        record.get('Tarih') or record.get('Date') or record.get('date'))
             
             rec_month, rec_year = extract_month_year(date_str)
+            
+            # Skip records with years beyond 2025 (data validation)
+            if rec_year and rec_year > 2025:
+                continue
             
             # Filter by year if specified (only if year is not None/empty)
             if year and rec_year and str(rec_year) != year:

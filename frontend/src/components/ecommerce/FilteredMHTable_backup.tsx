@@ -1,43 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AgGridReact } from 'ag-grid-react';
-import { ColDef, ColGroupDef, ModuleRegistry, AllCommunityModule, themeQuartz, RowDragEvent } from 'ag-grid-community';
-import 'ag-grid-community/styles/ag-grid.css';
-import './FilteredMHTable.css';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { apiFetch } from '../../utils/api';
-
-// Register AG Grid modules
-ModuleRegistry.registerModules([AllCommunityModule]);
-
-// Create custom dark theme matching the reference image exactly
-const myTheme = themeQuartz.withParams({
-  backgroundColor: "#1a2332",
-  browserColorScheme: "dark",
-  chromeBackgroundColor: "#1a2332",
-  foregroundColor: "#FFF",
-  headerFontSize: 13,
-  headerBackgroundColor: "#1a2332",
-  headerTextColor: "#94a3b8",
-  oddRowBackgroundColor: "#1a2332",
-  rowHoverColor: "#253344",
-  borderColor: "#2d3748",
-  cellHorizontalPaddingScale: 0.8,
-  headerColumnResizeHandleColor: "#4a5568",
-  inputBackgroundColor: "#0f1722",
-  inputBorder: true,
-  inputTextColor: "#ffffff",
-  filterToolPanelGroupIndent: 8,
-  rowBorder: true,
-  columnBorder: true,
-  wrapperBorder: true,
-  wrapperBorderRadius: 0,
-  sidePanelBorder: false,
-  headerColumnBorder: true,
-  headerRowBorder: true,
-  pinnedRowBorder: true,
-  pinnedColumnBorder: true,
-  spacing: 6,
-  fontSize: 13,
-});
 
 interface FilterOption {
   label: string;
@@ -73,15 +35,6 @@ interface TableData {
   projects: string;
   nationality: string;
   status: string;
-  northSouth: string;
-  control1: string;
-  no1: string;
-  no2: string;
-  no3: string;
-  no10: string;
-  kontrol1: string;
-  kontrol2: string;
-  lsUnitRate: string;
   monthlyMH: { [key: string]: number };
   totalMH: number;
 }
@@ -91,9 +44,7 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const YEARS = ['2023', '2024', '2025'];
+const YEARS = ['2023', '2024', '2025', '2026'];
 
 const FILTER_LABELS: { [key: string]: string } = {
   nameSurname: 'Name',
@@ -104,18 +55,24 @@ const FILTER_LABELS: { [key: string]: string } = {
   projects: 'Projects',
   nationality: 'Nationality',
   status: 'Status',
-  northSouth: 'North/South',
+  northSouth: 'North/ South',
   control1: 'Control-1',
   no1: 'NO-1',
   no2: 'NO-2',
   no3: 'NO-3',
   no10: 'NO-10',
-  kontrol1: 'Kontrol-1',
-  kontrol2: 'Kontrol-2',
+  kontrol1: 'Konrol-1',
+  kontrol2: 'Knrtol-2',
   lsUnitRate: 'LS/Unit Rate',
 };
 
 export default function FilteredMHTable() {
+  const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [selectedYear, setSelectedYear] = useState<string>(''); // Empty = All Years
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [tableData, setTableData] = useState<TableData[]>([]);
+  const [filterOptions, setFilterOptions] = useState<{ [key: string]: FilterOption[] }>({});
   const [filters, setFilters] = useState<FilterState>({
     nameSurname: [],
     discipline: [],
@@ -135,15 +92,9 @@ export default function FilteredMHTable() {
     kontrol2: [],
     lsUnitRate: [],
   });
-
-  const [filterOptions, setFilterOptions] = useState<{ [key: string]: FilterOption[] }>({});
-  const [tableData, setTableData] = useState<TableData[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [filtersExpanded, setFiltersExpanded] = useState(true);
-  const [selectedYear, setSelectedYear] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('');
-
-  const filterDebounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const filterDebounceTimer = useRef<number | null>(null);
   const isInitialMount = useRef(true);
 
   useEffect(() => {
@@ -205,6 +156,7 @@ export default function FilteredMHTable() {
       });
       const result = await apiFetch<{ data: TableData[] }>(`/api/mh-table-data?${params}`);
       setTableData(result.data || []);
+      setCurrentPage(1); // Reset to first page when data changes
     } catch (error) {
       console.error('[FilteredMHTable] Error fetching table data:', error);
       setTableData([]);
@@ -245,190 +197,57 @@ export default function FilteredMHTable() {
       kontrol2: [],
       lsUnitRate: [],
     });
+    setCurrentPage(1); // Reset to first page when filters are cleared
   };
 
-  // Transform data for AG Grid with flattened year-month columns
-  const gridRowData = useMemo(() => {
-    return tableData.map(row => {
-      const flatRow: any = {
-        nameSurname: row.nameSurname,
-        discipline: row.discipline,
-        company: row.company,
-        projectsGroup: row.projectsGroup,
-        totalMH: row.totalMH,
-      };
+  // Pagination calculations
+  const totalPages = Math.ceil(tableData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = tableData.slice(startIndex, endIndex);
 
-      // Flatten monthly data into individual columns
-      Object.entries(row.monthlyMH).forEach(([dateKey, value]) => {
-        flatRow[dateKey] = value;
-      });
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
-      return flatRow;
-    });
-  }, [tableData]);
+  // Generate page numbers for pagination
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    const maxVisible = 5; // Maximum number of page buttons to show
 
-  // Create AG Grid column definitions with year groups and month sub-columns
-  const columnDefs = useMemo<(ColDef | ColGroupDef)[]>(() => {
-    const fixedColumns: ColDef[] = [
-      {
-        headerName: 'Name',
-        field: 'nameSurname',
-        pinned: 'left',
-        width: 200,
-        minWidth: 150,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-        cellStyle: { fontWeight: 500 },
-        floatingFilter: true,
-        suppressMovable: false,
-      },
-      {
-        headerName: 'Discipline',
-        field: 'discipline',
-        width: 150,
-        minWidth: 120,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-        floatingFilter: true,
-        suppressMovable: false,
-      },
-      {
-        headerName: 'Company',
-        field: 'company',
-        width: 150,
-        minWidth: 120,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-        floatingFilter: true,
-        suppressMovable: false,
-      },
-      {
-        headerName: 'Projects/Group',
-        field: 'projectsGroup',
-        width: 180,
-        minWidth: 140,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-        floatingFilter: true,
-        suppressMovable: false,
-      },
-    ];
+    if (totalPages <= maxVisible) {
+      // Show all pages if total is less than max
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      // Always show first page
+      pages.push(1);
 
-    // When "All Years" is selected, show all years with months
-    if (!selectedYear) {
-      const yearGroups: ColGroupDef[] = YEARS.map(year => ({
-        headerName: year,
-        headerClass: 'ag-header-group-year',
-        children: MONTH_ABBR.map((monthName, idx) => {
-          const monthKey = `${(idx + 1).toString().padStart(2, '0')}`;
-          const fieldName = `${monthKey}`; // Backend might return as "01", "02", etc.
-          
-          return {
-            headerName: monthName,
-            field: fieldName,
-            width: 100,
-            minWidth: 80,
-            type: 'numericColumn',
-            filter: 'agNumberColumnFilter',
-            floatingFilter: true,
-            valueFormatter: (params: any) => {
-              return params.value != null ? Number(params.value).toFixed(2) : '-';
-            },
-            cellStyle: { textAlign: 'right' },
-            aggFunc: 'sum',
-            suppressMovable: false,
-          } as ColDef;
-        }),
-      }));
+      if (currentPage > 3) {
+        pages.push('...');
+      }
 
-      return [
-        ...fixedColumns,
-        ...yearGroups,
-        {
-          headerName: 'Total MH',
-          field: 'totalMH',
-          pinned: 'right',
-          width: 120,
-          minWidth: 100,
-          type: 'numericColumn',
-          filter: 'agNumberColumnFilter',
-          floatingFilter: true,
-          valueFormatter: (params: any) => Number(params.value).toFixed(2),
-          cellStyle: { fontWeight: 'bold', textAlign: 'right', color: '#3b82f6' },
-          aggFunc: 'sum',
-        } as ColDef,
-      ];
+      // Show pages around current page
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+
+      if (currentPage < totalPages - 2) {
+        pages.push('...');
+      }
+
+      // Always show last page
+      pages.push(totalPages);
     }
 
-    // When specific year is selected, show months for that year only
-    const monthColumns: ColDef[] = MONTH_ABBR.map((monthName, idx) => {
-      const monthKey = (idx + 1).toString().padStart(2, '0');
-      
-      return {
-        headerName: monthName,
-        field: monthKey,
-        width: 100,
-        minWidth: 80,
-        type: 'numericColumn',
-        filter: 'agNumberColumnFilter',
-        floatingFilter: true,
-        valueFormatter: (params: any) => {
-          return params.value != null ? Number(params.value).toFixed(2) : '-';
-        },
-        cellStyle: { textAlign: 'right' },
-        aggFunc: 'sum',
-        suppressMovable: false,
-      };
-    });
-
-    return [
-      ...fixedColumns,
-      ...monthColumns,
-      {
-        headerName: 'Total MH',
-        field: 'totalMH',
-        pinned: 'right',
-        width: 120,
-        minWidth: 100,
-        type: 'numericColumn',
-        filter: 'agNumberColumnFilter',
-        floatingFilter: true,
-        valueFormatter: (params: any) => Number(params.value).toFixed(2),
-        cellStyle: { fontWeight: 'bold', textAlign: 'right', color: '#3b82f6' },
-        aggFunc: 'sum',
-      },
-    ];
-  }, [selectedYear]);
-
-  // Default column definitions with floating filters (search bars below headers)
-  const defaultColDef = useMemo<ColDef>(() => ({
-    resizable: true,
-    sortable: true,
-    filter: true,
-    floatingFilter: true,
-    suppressHeaderMenuButton: false,
-    suppressHeaderFilterButton: false,
-    headerComponentParams: {
-      menuIcon: 'fa-bars',
-    },
-    minWidth: 100,
-    flex: 1,
-  }), []);
-
-  // Grid reference for drag operations
-  const gridRef = useRef<AgGridReact>(null);
-
-  // Handle row drag end
-  const onRowDragEnd = useCallback((event: RowDragEvent) => {
-    // Row order changed, you can persist this if needed
-    console.log('Row drag ended:', event);
-  }, []);
-
-  // Handle column moved
-  const onColumnMoved = useCallback((event: any) => {
-    // Column order changed
-    console.log('Column moved:', event);
-  }, []);
+    return pages;
+  };
 
   const FilterSection = React.memo(({ 
     title, 
@@ -747,41 +566,178 @@ export default function FilteredMHTable() {
           </div>
         </div>
 
-        {/* AG Grid Table Content */}
-        <div className="flex-1">
+        {/* Table Content */}
+        <div className="flex-1 overflow-x-auto">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
             </div>
           ) : (
-            <div style={{ height: 600, width: '100%' }} className="custom-ag-grid">
-              <AgGridReact
-                ref={gridRef}
-                theme={myTheme}
-                rowData={gridRowData}
-                columnDefs={columnDefs}
-                defaultColDef={defaultColDef}
-                pagination={true}
-                paginationPageSize={20}
-                paginationPageSizeSelector={[10, 20, 50, 100]}
-                enableCellTextSelection={true}
-                ensureDomOrder={true}
-                animateRows={true}
-                rowHeight={40}
-                headerHeight={40}
-                floatingFiltersHeight={38}
-                suppressMovableColumns={false}
-                rowDragManaged={true}
-                rowDragEntireRow={false}
-                rowDragMultiRow={true}
-                onRowDragEnd={onRowDragEnd}
-                onColumnMoved={onColumnMoved}
-                suppressDragLeaveHidesColumns={true}
-                enableRangeSelection={true}
-                rowSelection="multiple"
-                suppressRowClickSelection={true}
-                getRowId={(params) => params.data.nameSurname}
-              />
+            <div className="p-6">
+              {tableData.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-800/50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                          Name
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                          Discipline
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                          Company
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
+                          Projects/Group
+                        </th>
+                        {selectedMonth ? (
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
+                            {MONTHS[parseInt(selectedMonth) - 1]} {selectedYear} MH
+                          </th>
+                        ) : (
+                          MONTHS.map((month) => (
+                            <th 
+                              key={month}
+                              className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300"
+                            >
+                              {month.slice(0, 3)}
+                            </th>
+                          ))
+                        )}
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
+                          Total MH
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedData.map((row, idx) => (
+                        <tr 
+                          key={startIndex + idx}
+                          className="border-b border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/30"
+                        >
+                          <td className="px-4 py-3 text-sm text-gray-800 dark:text-white">
+                            {row.nameSurname}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
+                            {row.discipline}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
+                            {row.company}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 dark:text-white">
+                            {row.projectsGroup}
+                          </td>
+                          {selectedMonth ? (
+                            <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800 dark:text-white">
+                              {row.monthlyMH[selectedMonth]?.toFixed(2) || '0.00'}
+                            </td>
+                          ) : (
+                            MONTHS.map((_, monthIdx) => {
+                              const monthKey = (monthIdx + 1).toString().padStart(2, '0');
+                              return (
+                                <td 
+                                  key={monthKey}
+                                  className="px-4 py-3 text-right text-sm text-gray-800 dark:text-white"
+                                >
+                                  {row.monthlyMH[monthKey]?.toFixed(2) || '-'}
+                                </td>
+                              );
+                            })
+                          )}
+                          <td className="px-4 py-3 text-right text-sm font-bold text-primary dark:text-white">
+                            {row.totalMH.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
+                      <tr>
+                        <td 
+                          colSpan={4} 
+                          className="px-4 py-3 text-sm font-bold text-gray-800 dark:text-white"
+                        >
+                          Total
+                        </td>
+                        {selectedMonth ? (
+                          <td className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white">
+                            {tableData.reduce((sum, row) => sum + (row.monthlyMH[selectedMonth] || 0), 0).toFixed(2)}
+                          </td>
+                        ) : (
+                          MONTHS.map((_, monthIdx) => {
+                            const monthKey = (monthIdx + 1).toString().padStart(2, '0');
+                            const total = tableData.reduce((sum, row) => sum + (row.monthlyMH[monthKey] || 0), 0);
+                            return (
+                              <td 
+                                key={monthKey}
+                                className="px-4 py-3 text-right text-sm font-bold text-gray-800 dark:text-white"
+                              >
+                                {total.toFixed(2)}
+                              </td>
+                            );
+                          })
+                        )}
+                        <td className="px-4 py-3 text-right text-sm font-bold text-primary dark:text-white">
+                          {tableData.reduce((sum, row) => sum + row.totalMH, 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        Showing {startIndex + 1} to {Math.min(endIndex, tableData.length)} of {tableData.length} entries
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {/* Previous Button */}
+                        <button
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          disabled={currentPage === 1}
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          <i className="fas fa-chevron-left"></i>
+                        </button>
+
+                        {/* Page Numbers */}
+                        {getPageNumbers().map((page, idx) => (
+                          <React.Fragment key={idx}>
+                            {page === '...' ? (
+                              <span className="px-2 text-gray-500 dark:text-gray-400">...</span>
+                            ) : (
+                              <button
+                                onClick={() => handlePageChange(page as number)}
+                                className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                                  currentPage === page
+                                    ? 'bg-primary text-white'
+                                    : 'border border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
+                                }`}
+                              >
+                                {page}
+                              </button>
+                            )}
+                          </React.Fragment>
+                        ))}
+
+                        {/* Next Button */}
+                        <button
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          disabled={currentPage === totalPages}
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          <i className="fas fa-chevron-right"></i>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+                  <i className="fas fa-table mb-3 text-4xl"></i>
+                  <p>No data available for the selected filters</p>
+                </div>
+              )}
             </div>
           )}
         </div>
