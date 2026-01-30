@@ -1,9 +1,9 @@
 import Chart from "react-apexcharts";
 import { ApexOptions } from "apexcharts";
-import PieChart from "./PieChart";
 
 import ChartTab from "../common/ChartTab";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
+import type React from "react";
 
 type TabType = "optionOne" | "optionTwo" | "optionThree";
 
@@ -60,7 +60,7 @@ export default function StatisticsChart() {
             break;
           } else if (fmt === "%d/%b/%Y" && dateStr.match(/^\d{2}\/([A-Za-z]{3})\/\d{4}/)) {
             const [d, mon, y] = dateStr.split("/");
-            const monthMap = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+            const monthMap: Record<string, number> = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
             const m = monthMap[mon];
             if (m !== undefined) {
               dt = new Date(+y, m, +d);
@@ -78,7 +78,7 @@ export default function StatisticsChart() {
   // Fetch and process data
   useEffect(() => {
     setLoading(true);
-    fetch("http://localhost:5000/api/data")
+    fetch("/api/data")
       .then(res => res.json())
       .then(result => {
         if (!result.success || !Array.isArray(result.records)) {
@@ -91,7 +91,7 @@ export default function StatisticsChart() {
         setAvailableYears(years);
 
         // Group by selected key (Person, Company, Discipline)
-        const groupByFields = tabConfig[tab].groupBy;
+        const groupByFields = tabConfig[tab as TabType].groupBy;
         const agg: Record<string, number[]> = {};
         function getMonthYearIdx(r: any) {
           const dateStr = r['(Week / \nMonth)'] || r['(Week / Month)'] || r['Tarih'] || r['Date'];
@@ -116,7 +116,7 @@ export default function StatisticsChart() {
                 break;
               } else if (fmt === "%d/%b/%Y" && dateStr.match(/^\d{2}\/([A-Za-z]{3})\/\d{4}/)) {
                 const [d, mon, y] = dateStr.split("/");
-                const monthMap = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+                const monthMap: Record<string, number> = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
                 const m = monthMap[mon];
                 if (m !== undefined) {
                   dt = new Date(+y, m, +d);
@@ -152,7 +152,8 @@ export default function StatisticsChart() {
           ) {
             value = Number(r["İşveren- Hakediş"]) - Number(r["General Total Cost (USD)"]);
           } else {
-            continue;
+            // If calculated fields are missing, use 0 instead of skipping
+            value = 0;
           }
           if (!agg[groupVal]) agg[groupVal] = Array(12).fill(0);
           agg[groupVal][monthIdx] += value;
@@ -286,7 +287,7 @@ export default function StatisticsChart() {
   // Filtered series for search (using debounced search)
   const filteredSeries = useMemo(() => {
     if (!debouncedSearch.trim()) return series;
-    return series.filter((s) => s.name.toLowerCase().includes(debouncedSearch.trim().toLowerCase()));
+    return series.filter((s: any) => s.name.toLowerCase().includes(debouncedSearch.trim().toLowerCase()));
   }, [debouncedSearch, series]);
 
   // Keep selectedNames in sync with series changes
@@ -294,41 +295,31 @@ export default function StatisticsChart() {
     // When tab or year changes, select top 15 by total value to improve performance
     if (series.length > 0 && !debouncedSearch.trim()) {
       const sortedByTotal = series
-        .map(s => ({
+        .map((s: any) => ({
           name: s.name,
           total: s.data.reduce((acc: number, val: number) => acc + Math.abs(val), 0)
         }))
-        .sort((a, b) => b.total - a.total)
+        .sort((a: any, b: any) => b.total - a.total)
         .slice(0, 15)
-        .map(s => s.name);
+        .map((s: any) => s.name);
       setSelectedNames(sortedByTotal);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, year, series]);
 
-  // Handle search filtering
+  // Handle search filtering - auto-select filtered results when searching
   useEffect(() => {
     if (debouncedSearch.trim()) {
       // If searching, auto-select filtered results (max 15)
-      const filtered = series.filter((s) => s.name.toLowerCase().includes(debouncedSearch.trim().toLowerCase()));
-      setSelectedNames(filtered.slice(0, 15).map(s => s.name));
-    } else if (series.length > 0) {
-      // When search is cleared, restore top 15 selection
-      const sortedByTotal = series
-        .map(s => ({
-          name: s.name,
-          total: s.data.reduce((acc: number, val: number) => acc + Math.abs(val), 0)
-        }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 15)
-        .map(s => s.name);
-      setSelectedNames(sortedByTotal);
+      const filtered = series.filter((s: any) => s.name.toLowerCase().includes(debouncedSearch.trim().toLowerCase()));
+      setSelectedNames(filtered.slice(0, 15).map((s: any) => s.name));
     }
+    // When search is cleared, keep current selection (don't reset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
+  }, [debouncedSearch, series]);
 
   // Only show selected names in the chart
-  const displayedSeries = filteredSeries.filter(s => selectedNames.includes(s.name));
+  const displayedSeries = filteredSeries.filter((s: any) => selectedNames.includes(s.name));
 
   // derive chart options with color override when single series selected
   const chartOptions: ApexOptions = useMemo(() => ({
@@ -365,7 +356,7 @@ export default function StatisticsChart() {
 
   // Prepare pie chart data (sum all months for each series)
   const pieChartData = chartType === "pie" 
-    ? displayedSeries.map(s => ({
+    ? displayedSeries.map((s: any) => ({
         name: s.name,
         value: s.data.reduce((acc: number, val: number) => acc + val, 0)
       }))
@@ -373,13 +364,13 @@ export default function StatisticsChart() {
 
   // Prepare box plot data (convert line data to box plot format)
   const boxPlotSeries = chartType === "boxPlot"
-    ? displayedSeries.map(s => ({
+    ? displayedSeries.map((s: any) => ({
         name: s.name,
         type: 'boxPlot' as const,
         data: monthNames.map((_, idx) => {
-          const values = displayedSeries.map(series => series.data[idx]).filter(v => v !== 0);
+          const values = displayedSeries.map((series: any) => series.data[idx]).filter((v: any) => v !== 0);
           if (values.length === 0) return { x: monthNames[idx], y: [0, 0, 0, 0, 0] };
-          values.sort((a, b) => a - b);
+          values.sort((a: any, b: any) => a - b);
           const min = Math.min(...values);
           const max = Math.max(...values);
           const q1 = values[Math.floor(values.length * 0.25)];
@@ -412,7 +403,7 @@ export default function StatisticsChart() {
               <span className="text-sm text-gray-700 dark:text-gray-300">Chart:</span>
               <select
                 value={chartType}
-                onChange={(e) => setChartType(e.target.value as "line" | "bar" | "pie" | "boxPlot")}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setChartType(e.target.value as "line" | "bar" | "pie" | "boxPlot")}
                 className="px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-200"
               >
                 <option value="line">Line</option>
@@ -427,11 +418,11 @@ export default function StatisticsChart() {
               <div className="ml-4 flex items-center gap-3">
                 <div className="text-sm text-gray-700 dark:text-gray-300 mr-2">Row:</div>
                 <select
-                  value={rowField ?? tabConfig[tab].groupBy?.[0] ?? ""}
-                  onChange={(e) => setRowField(e.target.value || null)}
+                  value={rowField ?? tabConfig[tab as keyof typeof tabConfig].groupBy?.[0] ?? ""}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRowField(e.target.value || null)}
                   className="px-2 py-1 rounded border bg-white dark:bg-gray-800 text-sm"
                 >
-                  {(tabConfig[tab].groupBy || []).map(g => (
+                  {(tabConfig[tab as keyof typeof tabConfig].groupBy || []).map((g: string) => (
                     <option key={g} value={g}>{g}</option>
                   ))}
                 </select>
@@ -439,7 +430,7 @@ export default function StatisticsChart() {
                 <div className="text-sm text-gray-700 dark:text-gray-300 ml-2 mr-2">Col:</div>
                 <select
                   value={colField ?? monthNames[0]}
-                  onChange={(e) => setColField(e.target.value || null)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setColField(e.target.value || null)}
                   className="px-2 py-1 rounded border bg-white dark:bg-gray-800 text-sm"
                 >
                   {monthNames.map(m => <option key={m} value={m}>{m}</option>)}
@@ -448,7 +439,7 @@ export default function StatisticsChart() {
                 <div className="text-sm text-gray-700 dark:text-gray-300 ml-2 mr-2">Color:</div>
                 <select
                   value={selectedColor ?? colorPalette[0]}
-                  onChange={(e) => setSelectedColor(e.target.value || null)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedColor(e.target.value || null)}
                   className="px-2 py-1 rounded border bg-white dark:bg-gray-800 text-sm"
                 >
                   {colorPalette.map(c => (
@@ -512,9 +503,19 @@ export default function StatisticsChart() {
             <div className="text-base font-semibold text-gray-500 dark:text-gray-300">Loading...</div>
           ) : chartType === "pie" ? (
             <div style={{ width: "100%", height: fullscreen ? "90vh" : 500 }}>
-              <PieChart
+              <Chart 
+                options={{
+                  chart: { type: 'pie' },
+                  labels: pieChartData.map(d => d.name),
+                  legend: { position: 'bottom' },
+                  responsive: [{
+                    breakpoint: 480,
+                    options: { chart: { width: 300 }, legend: { position: 'bottom' } }
+                  }]
+                }}
                 series={pieChartData.map(d => d.value)}
-                labels={pieChartData.map(d => d.name)}
+                type="pie"
+                height={fullscreen ? "90%" : 500}
               />
             </div>
           ) : (
@@ -541,7 +542,7 @@ export default function StatisticsChart() {
             <input
               type="text"
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
               placeholder="Search name..."
               className="mb-3 w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring focus:border-blue-400"
             />
@@ -561,7 +562,7 @@ export default function StatisticsChart() {
                       <input
                         type="checkbox"
                         checked={selectedNames.includes(item.name)}
-                        onChange={e => {
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           if (e.target.checked) {
                             setSelectedNames(prev => [...prev, item.name]);
                           } else {

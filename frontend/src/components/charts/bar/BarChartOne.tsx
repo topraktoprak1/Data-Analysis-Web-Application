@@ -194,7 +194,7 @@ export default function StatisticsChart() {
   // Fetch and process data
   useEffect(() => {
     setLoading(true);
-    fetch("http://localhost:5000/api/data")
+    fetch("/api/data")
       .then(res => res.json())
       .then(result => {
         if (!result.success || !Array.isArray(result.records)) {

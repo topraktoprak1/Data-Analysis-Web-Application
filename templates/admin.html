@@ -75,12 +75,18 @@
                         </div>
                         <div class="card-body">
                             <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsb" style="display: none;">
-                            <div class="d-flex gap-2 align-items-center">
+                            <div class="d-flex gap-2 align-items-center flex-wrap">
                                 <button class="btn btn-primary" id="uploadBtn" onclick="document.getElementById('fileInput').click()">
                                     <i class="fas fa-upload"></i> Choose Excel File
                                 </button>
                                 <button class="btn btn-danger" id="clearDbBtn" onclick="clearDatabase()">
                                     <i class="fas fa-trash"></i> Clear Database
+                                </button>
+                                <button class="btn btn-warning" id="recalcBtn" onclick="recalculateProjectsGroup()" title="Recalculate empty Projects/Group values">
+                                    <i class="fas fa-calculator"></i> Fix Empty Projects/Group
+                                </button>
+                                <button class="btn btn-info" id="convertWeekBtn" onclick="convertWeekCodes()" title="Convert W01, W02 etc. to actual dates">
+                                    <i class="fas fa-calendar-alt"></i> Convert Week Codes
                                 </button>
                                 <span id="dbRecordCount" class="badge bg-secondary"></span>
                             </div>
@@ -251,6 +257,96 @@
                 }
             } catch (error) {
                 console.log('Could not get record count');
+            }
+        }
+        
+        // Recalculate Projects/Group for records with empty values
+        async function recalculateProjectsGroup() {
+            if (!confirm('This will recalculate Projects/Group for all records that have empty values. Continue?')) {
+                return;
+            }
+            
+            const btn = document.getElementById('recalcBtn');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating...';
+            
+            try {
+                const response = await fetch('/api/recalculate-projects-group', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to recalculate Projects/Group');
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    let message = `Updated ${result.updated} records, ${result.failed} failed`;
+                    if (result.missing_projects && result.missing_projects.length > 0) {
+                        message += `\n\nProjects not found in Info sheet:\n${result.missing_projects.join(', ')}`;
+                    }
+                    alert(message);
+                    showAlert(result.message, result.updated > 0 ? 'success' : 'warning');
+                    // Reload records
+                    loadRecords();
+                    loadDataPreview();
+                } else {
+                    showAlert(result.error || 'Failed to recalculate Projects/Group', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error recalculating Projects/Group: ' + error.message, 'danger');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+        
+        // Convert week codes (W01, W02, etc.) to actual dates
+        async function convertWeekCodes() {
+            if (!confirm('This will convert week codes (W01, W02, etc.) to actual dates based on the newest date in the database. Continue?')) {
+                return;
+            }
+            
+            const btn = document.getElementById('convertWeekBtn');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Converting...';
+            
+            try {
+                const response = await fetch('/api/convert-week-codes-to-dates', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to convert week codes');
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    let message = `✓ Converted ${result.updated} week codes to dates\n`;
+                    message += `\nNewest date found: ${result.newest_date}`;
+                    message += `\nTarget month: ${result.target_month}`;
+                    if (result.week_codes_converted && result.week_codes_converted.length > 0) {
+                        message += `\n\nWeek codes converted: ${result.week_codes_converted.join(', ')}`;
+                    }
+                    alert(message);
+                    showAlert(result.message, 'success');
+                    // Reload records
+                    loadRecords();
+                    loadDataPreview();
+                } else {
+                    showAlert(result.error || 'Failed to convert week codes', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error converting week codes: ' + error.message, 'danger');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
             }
         }
         

@@ -14,13 +14,13 @@ export default function UserProfiles() {
 
   useEffect(() => {
     // fetch primary user info from backend (adjust endpoint as needed)
-    fetch("http://localhost:5000/api/user")
+    fetch("/api/user")
       .then((r) => r.json())
       .then((data) => setUser(data?.user ?? data))
       .catch(() => setUser(null));
 
     // fetch admin profile (optional)
-    fetch("http://localhost:5000/api/admin")
+    fetch("/api/admin")
       .then((r) => r.json())
       .then((data) => setAdmin(data?.admin ?? data))
       .catch(() => setAdmin(null));
@@ -30,7 +30,7 @@ export default function UserProfiles() {
     setDataRefreshKey(prev => prev + 1);
   };
 
-  return (
+  return (  
     <>
       <PageMeta
         title="Profile"

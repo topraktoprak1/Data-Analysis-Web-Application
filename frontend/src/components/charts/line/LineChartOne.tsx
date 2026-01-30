@@ -18,7 +18,7 @@ export default function LineChartOne() {
   useEffect(() => {
     const dataColect = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/get-graph-data?type=line");
+        const response = await fetch("/api/get-graph-data?type=line");
         const result = await response.json();
         if (result.success && result.data) {
           options.xaxis!.categories = result.data.labels;

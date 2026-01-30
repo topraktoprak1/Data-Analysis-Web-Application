@@ -25,7 +25,7 @@ export default function PieChart() {
              if (mounted) setPieComp(() => R.Pie as ComponentType<unknown>);
 
 
-        const response = await fetch("http://localhost:5000/api/stats");
+        const response = await fetch("/api/stats");
         const result = await response.json();
         const apcbCount = result.apcb || 0;
         const subconCount = result.subcon || 0;

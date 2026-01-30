@@ -10,7 +10,7 @@ export default function MonthlySalesChart() {
   useEffect(() => {
     async function fetchSalesData() {
       try {
-        const response = await fetch('http://localhost:5000/api/data');
+        const response = await fetch('/api/data');
         const result = await response.json();
         if (result.success && Array.isArray(result.records)) {
           // Aggregate monthly KAR-ZARAR for the selected year
@@ -39,7 +39,7 @@ export default function MonthlySalesChart() {
                   break;
                 } else if (fmt === "%d/%b/%Y" && dateStr.match(/^\d{2}\/([A-Za-z]{3})\/\d{4}/)) {
                   const [d, mon, y] = dateStr.split("/");
-                  const monthMap = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+                  const monthMap: Record<string, number> = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
                   const m = monthMap[mon];
                   if (m !== undefined) {
                     dt = new Date(+y, m, +d);

@@ -9,7 +9,7 @@ export default function PieChart() {
   useEffect(() => {
     const dataCollect = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/get-graph-data?type=pie");
+        const response = await fetch("/api/get-graph-data?type=pie");
         const result = await response.json();
         if (result.success && result.data) {
           setSeries(result.data.series);

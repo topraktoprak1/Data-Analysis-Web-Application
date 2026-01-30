@@ -18,7 +18,7 @@ export default function BasicTableOne() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch("http://localhost:5000/api/data");
+        const response = await fetch("/api/data");
         const result = await response.json();
         // Expecting result to be an array of objects with { ay, karZarar }
         const labels = result.map((item: { ay: string }) => item.ay);

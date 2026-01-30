@@ -18,7 +18,7 @@ export default function EcommerceMetrics() {
 
   const fetchMetrics = async () => {
     try {
-      const response = await fetch("http://localhost:5000/api/data");
+      const response = await fetch("/api/data");
       const result = await response.json();
       if (result.success) {
         setData({

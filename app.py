@@ -304,7 +304,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour (3600 seconds)
 # For local development, use: postgresql://username:password@localhost:5432/database_name
 # For production, use environment variable
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 
-    'postgresql://postgres:85758.As@localhost:5432/veri_analizi')
+    'postgresql://postgres:857587@localhost:5432/veri_analizi')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_size': 10,
@@ -554,6 +554,106 @@ def excel_date_to_string(excel_date):
         print(f"Error converting Excel date {excel_date}: {e}")
         return str(excel_date) if excel_date else None
 
+def convert_week_codes_in_dataframe(df):
+    """
+    Convert week codes (W01, W02, etc.) to actual dates in a DataFrame
+    Finds the newest date and converts week codes to the next month
+    """
+    import re
+    from dateutil.relativedelta import relativedelta
+    
+    # Find all possible Week/Month column names
+    week_month_col = None
+    for col in df.columns:
+        col_str = str(col).lower()
+        if 'week' in col_str and 'month' in col_str:
+            week_month_col = col
+            break
+    
+    if not week_month_col:
+        print("No Week/Month column found, skipping week code conversion")
+        return df
+    
+    print(f"Found Week/Month column: {week_month_col}")
+    
+    # First pass: Find the newest actual date (not week code)
+    newest_date = None
+    
+    for idx, row in df.iterrows():
+        date_value = row.get(week_month_col)
+        
+        if pd.isna(date_value):
+            continue
+        
+        date_str = str(date_value).strip()
+        
+        # Skip week codes
+        if re.match(r'^W\d+$', date_str, re.IGNORECASE):
+            continue
+        
+        # Try to parse as actual date
+        parsed_date = None
+        for fmt in ["%Y-%m-%d", "%d/%b/%Y", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%Y"]:
+            try:
+                if len(date_str) >= 10:
+                    parsed_date = datetime.strptime(date_str[:10], fmt)
+                else:
+                    parsed_date = datetime.strptime(date_str, fmt)
+                break
+            except:
+                continue
+        
+        if parsed_date:
+            if newest_date is None or parsed_date > newest_date:
+                newest_date = parsed_date
+    
+    if not newest_date:
+        print("No valid dates found, cannot convert week codes")
+        return df
+    
+    # Calculate the next month after the newest date
+    next_month = newest_date + relativedelta(months=1)
+    next_month = next_month.replace(day=1)
+    
+    print(f"Newest date found: {newest_date.strftime('%Y-%m-%d')}")
+    print(f"Converting week codes to dates in: {next_month.strftime('%B %Y')}")
+    
+    # Second pass: Convert week codes
+    converted_count = 0
+    week_codes_found = set()
+    
+    for idx, row in df.iterrows():
+        date_value = row.get(week_month_col)
+        
+        if pd.isna(date_value):
+            continue
+        
+        date_str = str(date_value).strip()
+        
+        # Check if it's a week code
+        week_match = re.match(r'^W(\d+)$', date_str, re.IGNORECASE)
+        if week_match:
+            week_number = int(week_match.group(1))
+            week_codes_found.add(date_str)
+            
+            # Calculate the date: week 1 = days 1-7, week 2 = days 8-14, etc.
+            day_of_month = min(1 + (week_number - 1) * 7, 28)
+            new_date = next_month.replace(day=day_of_month)
+            
+            # Format as dd/mmm/yyyy
+            formatted_date = new_date.strftime('%d/%b/%Y')
+            
+            # Update the DataFrame
+            df.at[idx, week_month_col] = formatted_date
+            converted_count += 1
+    
+    if converted_count > 0:
+        print(f"✓ Converted {converted_count} week codes to dates: {sorted(list(week_codes_found))}")
+    else:
+        print("No week codes found to convert")
+    
+    return df
+
 def calculate_auto_fields(record_data, file_path=None):
     """
     Calculate all auto-populated fields based on Excel formulas
@@ -656,9 +756,13 @@ def calculate_auto_fields(record_data, file_path=None):
     # 3. Projects/Group = XLOOKUP($H, Info!$O:$O, Info!$P:$P)
     # $H = Projects column (column H in DATABASE = Projects)
     # Info column O = index 14 (Projects lookup), Info column P = index 15 (Projects/Group return)
-    projects_group = xlookup(projects, info_df.iloc[:, 14], info_df.iloc[:, 15], '')
-    record_data['Projects/Group'] = projects_group
-    print(f'DEBUG: Calculated Projects/Group = {projects_group} for Projects = {projects}')
+    # Only auto-calculate if user didn't provide a value
+    if not projects_group:
+        projects_group = xlookup(projects, info_df.iloc[:, 14], info_df.iloc[:, 15], '')
+        record_data['Projects/Group'] = projects_group
+        print(f'DEBUG: Calculated Projects/Group = {projects_group} for Projects = {projects}')
+    else:
+        print(f'DEBUG: Keeping user-provided Projects/Group = {projects_group}')
     
     # 16. AP-CB/Subcon = IF(ISNUMBER(SEARCH("AP-CB", E)), "AP-CB", "Subcon")
     # E = Company column
@@ -2049,6 +2153,302 @@ def validate_record():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/recalculate-projects-group', methods=['POST'])
+@login_required
+def recalculate_projects_group():
+    """Recalculate Projects/Group for all records with empty values"""
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        # Load Excel reference data
+        file_path = session.get('current_file')
+        if not file_path or not os.path.exists(file_path):
+            upload_dir = app.config['UPLOAD_FOLDER']
+            xlsb_files = [f for f in os.listdir(upload_dir) if f.endswith('.xlsb')]
+            if not xlsb_files:
+                return jsonify({'error': 'No Excel file found'}), 404
+            xlsb_files.sort(reverse=True)
+            file_path = os.path.join(upload_dir, xlsb_files[0])
+        
+        if not load_excel_reference_data(file_path):
+            return jsonify({'error': 'Could not load Excel reference data'}), 500
+        
+        info_df = _excel_cache['info_df']
+        
+        # Get all records
+        records = DatabaseRecord.query.all()
+        
+        updated_count = 0
+        failed_count = 0
+        skipped_count = 0
+        failed_projects = set()
+        
+        for record in records:
+            try:
+                data = json.loads(record.data)
+                
+                # Check if Projects/Group is empty
+                projects_group = safe_str(data.get('Projects/Group', ''))
+                
+                if not projects_group:
+                    # Get Projects value
+                    projects = safe_str(data.get('Projects', ''))
+                    
+                    if projects:
+                        # Try to lookup Projects/Group
+                        # Info column O = index 14 (Projects lookup), Info column P = index 15 (Projects/Group return)
+                        calculated_projects_group = xlookup(projects, info_df.iloc[:, 14], info_df.iloc[:, 15], '')
+                        
+                        if calculated_projects_group:
+                            # Update the record
+                            data['Projects/Group'] = calculated_projects_group
+                            record.data = json.dumps(data)
+                            record.updated_at = datetime.utcnow()
+                            updated_count += 1
+                            print(f"Updated record {record.id}: Projects='{projects}' -> Projects/Group='{calculated_projects_group}'")
+                        else:
+                            failed_count += 1
+                            failed_projects.add(projects)
+                            print(f"Could not find Projects/Group for Projects='{projects}' in record {record.id}")
+                    else:
+                        failed_count += 1
+                        print(f"Record {record.id} has no Projects value")
+                else:
+                    skipped_count += 1
+            
+            except Exception as e:
+                print(f"Error processing record {record.id}: {str(e)}")
+                failed_count += 1
+        
+        # Commit all changes
+        if updated_count > 0:
+            db.session.commit()
+            clear_data_cache()
+        
+        result = {
+            'success': True,
+            'updated': updated_count,
+            'failed': failed_count,
+            'skipped': skipped_count,
+            'total_processed': len(records),
+            'message': f'Updated {updated_count} records, {failed_count} failed, {skipped_count} already had values'
+        }
+        
+        if failed_projects:
+            result['missing_projects'] = sorted(list(failed_projects))
+            result['message'] += f'\n\nProjects not found in Info sheet: {", ".join(sorted(list(failed_projects)))}'
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        print(f"Recalculate Projects/Group error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/convert-week-codes-to-dates', methods=['POST'])
+@login_required
+def convert_week_codes_to_dates():
+    """Convert week codes (W01, W02, etc.) to actual dates based on the newest date in database"""
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        import re
+        from dateutil.relativedelta import relativedelta
+        
+        # Get all records
+        records = DatabaseRecord.query.all()
+        
+        if not records:  
+            return jsonify({'error': 'No records in database'}), 404
+        
+        print(f"\n{'='*80}")
+        print(f"WEEK CODE CONVERSION - Starting with {len(records)} records")
+        print(f"{'='*80}")
+        
+        # Debug: Check first few records to see what date fields exist
+        sample_fields = set()
+        for i, record in enumerate(records[:5]):
+            try:
+                data = json.loads(record.data)
+                date_related_fields = [k for k in data.keys() if 'week' in k.lower() or 'month' in k.lower() or 'date' in k.lower()]
+                sample_fields.update(date_related_fields)
+                if i == 0:
+                    print(f"\nSample record {record.id} date-related fields:")
+                    for field in date_related_fields:
+                        print(f"  '{field}': '{data[field]}'")
+            except:
+                continue
+        
+        print(f"\nAll date-related fields found in first 5 records: {sample_fields}")
+        
+        # First pass: Find the newest actual date (not week code)
+        newest_date = None
+        date_fields = ['(Week /\nMonth)', '(Week / Month)', 'Week / Month', 'Week/Month', 'Week Month', '(Week/Month)']
+        date_samples = []
+        week_code_samples = []
+        
+        for record in records:
+            try:
+                data = json.loads(record.data)
+                
+                # Try all possible field name variations
+                date_value = None
+                found_field = None
+                for field in date_fields:
+                    if field in data:
+                        date_value = data[field]
+                        found_field = field
+                        break
+                
+                if not date_value:
+                    # Also check if field exists but is empty
+                    for field in date_fields:
+                        if field in data:
+                            print(f"Record {record.id}: Field '{field}' exists but value is empty/None")
+                    continue
+                
+                date_str = str(date_value).strip()
+                
+                # Skip empty strings
+                if not date_str or date_str.lower() in ['nan', 'none', 'nat']:
+                    continue
+                
+                # Check if it's a week code (W01, W02, etc.)
+                if re.match(r'^W\d+$', date_str, re.IGNORECASE):
+                    week_code_samples.append(f"{date_str} (field: {found_field})")
+                    continue
+                
+                # Try to parse as actual date
+                parsed_date = None
+                for fmt in ["%Y-%m-%d", "%d/%b/%Y", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%Y"]:
+                    try:
+                        parsed_date = datetime.strptime(date_str[:10] if len(date_str) >= 10 else date_str, fmt)
+                        break
+                    except:
+                        continue
+                
+                if parsed_date:
+                    date_samples.append(f"{date_str} ({parsed_date.strftime('%Y-%m-%d')})")
+                    if newest_date is None or parsed_date > newest_date:
+                        newest_date = parsed_date
+            
+            except Exception as e:
+                print(f"Error in first pass for record {record.id}: {str(e)}")
+                continue
+        
+        print(f"\nFound {len(date_samples)} valid dates, sample: {date_samples[:5]}")
+        print(f"Found {len(week_code_samples)} week codes, sample: {week_code_samples[:10]}")
+        
+        if not newest_date:
+            return jsonify({
+                'error': 'Could not find any valid dates in database',
+                'date_samples': date_samples[:10],
+                'week_code_samples': week_code_samples[:10],
+                'total_records': len(records)
+            }), 404
+        
+        # Calculate the next month after the newest date
+        next_month = newest_date + relativedelta(months=1)
+        next_month = next_month.replace(day=1)  # Start from the 1st of the month
+        
+        print(f"\nNewest date found: {newest_date.strftime('%Y-%m-%d')} ({newest_date.strftime('%d/%b/%Y')})")
+        print(f"Converting week codes to dates in: {next_month.strftime('%B %Y')}")
+        
+        # Second pass: Convert week codes to dates
+        updated_count = 0
+        week_codes_found = {}
+        conversion_log = []
+        
+        for record in records:
+            try:
+                data = json.loads(record.data)
+                
+                # Try all possible field name variations
+                date_field = None
+                date_value = None
+                for field in date_fields:
+                    if field in data:
+                        date_field = field
+                        date_value = data[field]
+                        break
+                
+                if not date_value or not date_field:
+                    continue
+                
+                date_str = str(date_value).strip()
+                
+                # Skip empty strings
+                if not date_str or date_str.lower() in ['nan', 'none', 'nat']:
+                    continue
+                
+                # Check if it's a week code (W01, W02, etc.)
+                week_match = re.match(r'^W(\d+)$', date_str, re.IGNORECASE)
+                if week_match:
+                    week_number = int(week_match.group(1))
+                    
+                    if date_str not in week_codes_found:
+                        week_codes_found[date_str] = 0
+                    week_codes_found[date_str] += 1
+                    
+                    # Calculate the date: week 1 = days 1-7, week 2 = days 8-14, etc.
+                    day_of_month = min(1 + (week_number - 1) * 7, 28)  # Cap at day 28 to avoid month overflow
+                    new_date = next_month.replace(day=day_of_month)
+                    
+                    # Format as dd/mmm/yyyy (like "01/Jan/2026")
+                    formatted_date = new_date.strftime('%d/%b/%Y')
+                    
+                    # Update the record
+                    data[date_field] = formatted_date
+                    record.data = json.dumps(data)
+                    record.updated_at = datetime.utcnow()
+                    updated_count += 1
+                    
+                    if updated_count <= 10:  # Log first 10 conversions
+                        conversion_log.append(f"Record {record.id}: {date_str} -> {formatted_date}")
+            
+            except Exception as e:
+                print(f"Error processing record {record.id}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        # Commit all changes
+        if updated_count > 0:
+            db.session.commit()
+            clear_data_cache()
+            print(f"\n✓ Committed {updated_count} conversions to database")
+            print(f"\nSample conversions:")
+            for log in conversion_log:
+                print(f"  {log}")
+        else:
+            print(f"\n✗ No week codes found to convert!")
+        
+        print(f"\n{'='*80}\n")
+        
+        result = {
+            'success': True,
+            'updated': updated_count,
+            'total_processed': len(records),
+            'newest_date': newest_date.strftime('%d/%b/%Y'),
+            'target_month': next_month.strftime('%B %Y'),
+            'week_codes_found': week_codes_found,
+            'conversion_samples': conversion_log,
+            'message': f'Converted {updated_count} week codes to dates in {next_month.strftime("%B %Y")}. Newest date was {newest_date.strftime("%d/%b/%Y")}.'
+        }
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        print(f"Convert week codes error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
 @app.route('/api/get-person-info', methods=['GET'])
 @login_required
 def get_person_info():
@@ -2489,6 +2889,10 @@ def upload_file():
             print(f"Empty cells filled successfully")
         else:
             print(f"Warning: Could not load reference sheets, skipping formula calculations")
+        
+        # Convert week codes to dates before saving
+        print(f"Converting week codes to dates...")
+        df = convert_week_codes_in_dataframe(df)
         
         # Save data to database permanently
         print(f"Saving data to database...")
@@ -4986,14 +5390,6 @@ def get_mh_table_data():
             
             rec_month, rec_year = extract_month_year(date_str)
             
-            # Skip records with years beyond 2025 (data validation)
-            if rec_year and rec_year > 2025:
-                continue
-            
-            # Filter by year if specified (only if year is not None/empty)
-            if year and rec_year and str(rec_year) != year:
-                continue
-            
             # Initialize person entry if not exists
             if name not in person_data:
                 person_data[name] = {
@@ -5012,8 +5408,17 @@ def get_mh_table_data():
                     month_key = str(rec_month).zfill(2)
                     # Apply month filter if specified
                     if not month or month_key == month:
-                        person_data[name]['monthlyMH'][month_key] = \
-                            person_data[name]['monthlyMH'].get(month_key, 0) + total_mh
+                        # When no specific year is selected (All Years), use year-month key
+                        # When specific year is selected, use just month key
+                        if not year:
+                            # All Years - use format like "2023-01", "2024-02"
+                            full_month_key = f"{rec_year}-{month_key}"
+                        else:
+                            # Specific year - use format like "01", "02"
+                            full_month_key = month_key
+                        
+                        person_data[name]['monthlyMH'][full_month_key] = \
+                            person_data[name]['monthlyMH'].get(full_month_key, 0) + total_mh
                         person_data[name]['totalMH'] += total_mh
             else:
                 # If no date info, just add to total (for year agnostic data)

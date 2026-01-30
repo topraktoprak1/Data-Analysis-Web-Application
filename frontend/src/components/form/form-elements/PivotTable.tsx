@@ -172,7 +172,7 @@ const PivotTableSelector: React.FC<PivotTableSelectorProps> = ({
             setLoading(true);
             setError(null);
             try {
-                const response = await fetch('http://localhost:5000/api/data');
+                const response = await fetch('/api/data');
                 const result = await response.json();
                 if (result.success && Array.isArray(result.records)) {
                     if (result.records.length > 0) {

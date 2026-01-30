@@ -93,7 +93,7 @@ const MONTHS = [
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const YEARS = ['2023', '2024', '2025'];
+const YEARS = ['2023', '2024', '2025', '2026'];
 
 const FILTER_LABELS: { [key: string]: string } = {
   nameSurname: 'Name',
@@ -249,6 +249,12 @@ export default function FilteredMHTable() {
 
   // Transform data for AG Grid with flattened year-month columns
   const gridRowData = useMemo(() => {
+    console.log('[FilteredMHTable] Raw tableData:', tableData.length, 'rows');
+    if (tableData.length > 0) {
+      console.log('[FilteredMHTable] Sample row monthlyMH keys:', Object.keys(tableData[0].monthlyMH));
+      console.log('[FilteredMHTable] Sample row data:', tableData[0]);
+    }
+    
     return tableData.map(row => {
       const flatRow: any = {
         nameSurname: row.nameSurname,
@@ -321,7 +327,7 @@ export default function FilteredMHTable() {
         headerClass: 'ag-header-group-year',
         children: MONTH_ABBR.map((monthName, idx) => {
           const monthKey = `${(idx + 1).toString().padStart(2, '0')}`;
-          const fieldName = `${monthKey}`; // Backend might return as "01", "02", etc.
+          const fieldName = `${year}-${monthKey}`; // Use year-month format like "2023-01"
           
           return {
             headerName: monthName,
@@ -617,16 +623,17 @@ export default function FilteredMHTable() {
               return values.map((value: string) => (
                 <span
                   key={`${filterKey}-${value}`}
-                  className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-white"
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-sm"
                 >
-                  <span className="text-xs opacity-75">{FILTER_LABELS[filterKey]}:</span>
-                  <span>{value}</span>
+                  <span className="text-xs opacity-80">{FILTER_LABELS[filterKey]}:</span>
+                  <span className="font-semibold">{value}</span>
                   <button
                     onClick={() => handleFilterChange(filterKey as keyof FilterState, value)}
-                    className="hover:text-gray-200"
+                    className="ml-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white transition-all hover:bg-red-600 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-red-300"
                     title="Remove filter"
+                    aria-label={`Remove ${FILTER_LABELS[filterKey]} filter: ${value}`}
                   >
-                    <i className="fas fa-times text-xs"></i>
+                    ✕
                   </button>
                 </span>
               ));

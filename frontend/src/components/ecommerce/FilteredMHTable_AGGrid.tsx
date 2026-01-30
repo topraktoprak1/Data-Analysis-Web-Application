@@ -566,6 +566,7 @@ export default function FilteredMHTable() {
               title={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
             >
               <i className={`fas fa-${filtersExpanded ? 'angle-left' : 'angle-right'}`}></i>
+              {!filtersExpanded && <span className="ml-1 text-xs">...</span>}
             </button>
 
             {filtersExpanded && (

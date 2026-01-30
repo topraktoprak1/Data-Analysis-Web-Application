@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import PieChart from '../ecommerce/PieChart';
 
 interface CompanyRow {
     Company: string;
@@ -17,7 +16,7 @@ export default function CompanyTable() {
             setLoading(true);
             setError(null);
             try {
-                const response = await fetch('http://localhost:5000/api/data');
+                const response = await fetch('/api/data');
                 const result = await response.json();
                 if (result.success && Array.isArray(result.records)) {
                     // Map backend data to required columns
@@ -28,11 +27,14 @@ export default function CompanyTable() {
                         // Calculate KAR-ZARAR as (İşveren- Hakediş (USD) or İşveren- Hakediş) - General Total Cost (USD)
                         let karZarar = 0;
                         if (r["İşveren- Hakediş (USD)"] !== undefined && r["General Total Cost (USD)"] !== undefined) {
-                            karZarar = Number(r["İşveren- Hakediş (USD)"]) - Number(r["General Total Cost (USD)"]);
+                            karZarar = Number(r["İşveren- Hakediş (USD)"]) - Number(r["General Total Cost (USD)"])
+                            karZarar = Math.round(karZarar * 100) / 100; // Round to 2 decimal places
                         } else if (r["İşveren- Hakediş"] !== undefined && r["General Total Cost (USD)"] !== undefined) {
                             karZarar = Number(r["İşveren- Hakediş"]) - Number(r["General Total Cost (USD)"]);
+                            karZarar = Math.round(karZarar * 100) / 100; // Round to 2 decimal places
                         }
-                        const totalMH = Number(r['TOTAL MH'] ?? r.total_mh ?? 0);
+                        let totalMH = Number(r['TOTAL MH'] ?? r.total_mh ?? 0)
+                        totalMH = Math.round(totalMH * 100) / 100; // Round to 2 decimal places
                         if (!aggregation[company]) {
                             aggregation[company] = { Company: company, KAR_ZARAR: 0, TOTAL_MH: 0 };
                         }
@@ -74,22 +76,14 @@ export default function CompanyTable() {
                                     {rows.map((row, idx) => (
                                         <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
                                             <td className="px-4 py-2 text-gray-800 dark:text-white">{row.Company}</td>
-                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.KAR_ZARAR}</td>
-                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.TOTAL_MH}</td>
+                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.KAR_ZARAR.toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-gray-800 dark:text-white">{row.TOTAL_MH.toFixed(2)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
                     )}
-                </div>
-
-                {/* Pie Chart Section */}
-                <div className="lg:w-80 flex-shrink-0">
-                    <h4 className="text-sm font-semibold text-gray-800 dark:text-white mb-3">Şirkete Göre Çalışan Dağılımı</h4>
-                    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-3">
-                        <PieChart />
-                    </div>
                 </div>
             </div>
         </div>

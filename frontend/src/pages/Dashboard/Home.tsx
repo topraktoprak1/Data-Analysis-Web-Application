@@ -1,6 +1,4 @@
 import MonthlySalesChart from "../../components/ecommerce/MonthlySalesChart";
-import StatisticsChart from "../../components/ecommerce/StatisticsChart";
-import MonthlyTarget from "../../components/ecommerce/PivotTableOnMainPage";
 import FilteredMHTable from "../../components/ecommerce/FilteredMHTable";
 import KarZararTrendsCharts from "../../components/ecommerce/KarZararTrendsCharts";
 import KarZararBarCharts from "../../components/ecommerce/KarZararBarCharts";
@@ -35,17 +33,11 @@ export default function Home() {
           <TotalMHPieCharts />
         </div>
 
-        <div className="col-span-12 space-y-6 xl:col-span-7">
-          <MonthlySalesChart />
+        <div className="col-span-12 space-y-6">
+         
         </div>
 
-        <div className="col-span-12 xl:col-span-5">
-          <MonthlyTarget />
-        </div>
-
-        <div className="col-span-12">
-          <StatisticsChart />
-        </div>
+        
 
         {/* DemographicCard removed */}
 
