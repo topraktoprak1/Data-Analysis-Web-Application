@@ -944,12 +944,18 @@
 }
 
 .dark .ag-popup .ag-list-item:hover,
-.dark .ag-popup .ag-select-list-item:hover {
+.dark .ag-popup .ag-select-list-item:hover,
+.dark .ag-rich-select-row:hover {
   background-color: #253344 !important;
 }
 
+.dark .ag-rich-select-row {
+  color: #ffffff !important;
+}
+
 .dark .ag-popup .ag-column-select,
-.dark .ag-popup .ag-column-select-list {
+.dark .ag-popup .ag-column-select-list,
+.dark .ag-rich-select-list {
   background-color: #1a2332 !important;
 }
 
@@ -984,4 +990,53 @@
 .dark .ag-popup .ag-radio-button-input-wrapper {
   background-color: #0f1722 !important;
   border: 1px solid #2a3441 !important;
+}
+
+/* Dark mode - Filter dropdown select styling */
+.dark .ag-popup .ag-select,
+.dark .ag-popup .ag-picker-field-wrapper,
+.dark .ag-popup .ag-picker-field {
+  background-color: #0f1722 !important;
+  border-color: #2a3441 !important;
+}
+
+.dark .ag-popup .ag-picker-field-display,
+.dark .ag-popup .ag-select .ag-picker-field-display {
+  color: #ffffff !important;
+}
+
+.dark .ag-popup .ag-select-list,
+.dark .ag-popup .ag-picker-list,
+.dark .ag-select-list {
+  background-color: #1a2332 !important;
+  border: 1px solid #2a3441 !important;
+}
+
+.dark .ag-popup .ag-select-list-item,
+.dark .ag-select-list-item,
+.dark .ag-popup .ag-list-item {
+  color: #ffffff !important;
+  background-color: #1a2332 !important;
+}
+
+.dark .ag-popup .ag-select-list-item:hover,
+.dark .ag-select-list-item:hover,
+.dark .ag-popup .ag-list-item:hover,
+.dark .ag-popup .ag-select-list-item.ag-active-item,
+.dark .ag-select-list-item.ag-active-item {
+  background-color: #253344 !important;
+  color: #ffffff !important;
+}
+
+/* Filter input styling for dark mode */
+.dark .ag-popup .ag-text-field-input,
+.dark .ag-popup .ag-input-field-input {
+  background-color: #0f1722 !important;
+  border: 1px solid #2a3441 !important;
+  color: #ffffff !important;
+}
+
+.dark .ag-popup .ag-text-field-input::placeholder,
+.dark .ag-popup .ag-input-field-input::placeholder {
+  color: #6b7280 !important;
 }
