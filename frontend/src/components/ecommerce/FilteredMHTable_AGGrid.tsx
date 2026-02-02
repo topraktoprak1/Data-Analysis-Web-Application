@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef, ColGroupDef } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -81,6 +81,75 @@ const FILTER_LABELS: { [key: string]: string } = {
   lsUnitRate: 'LS/Unit Rate',
 };
 
+// Custom Header Component
+const CustomHeader = (props: any) => {
+  const { column, displayName, enableMenu, enableSorting, showColumnMenu, setSort, onAggregate, isAggregated } = props;
+
+  const [sortState, setSortState] = useState<'asc' | 'desc' | null>(null);
+
+  const onSortRequested = (event: any) => {
+    if (enableSorting) {
+      const order = sortState === 'asc' ? 'desc' : sortState === 'desc' ? null : 'asc';
+      setSort(order, event.shiftKey);
+      setSortState(order);
+    }
+  };
+
+  useEffect(() => {
+    const listener = () => {
+      const sort = column.getSort();
+      setSortState(sort);
+    };
+    column.addEventListener('sortChanged', listener);
+    return () => column.removeEventListener('sortChanged', listener);
+  }, [column]);
+
+  return (
+    <div className="flex w-full items-center justify-between">
+      <div
+        className="flex flex-1 cursor-pointer items-center overflow-hidden text-ellipsis"
+        onClick={onSortRequested}
+      >
+        <span className="truncate" title={displayName}>{displayName}</span>
+        {sortState && (
+          <span className="ml-1 text-xs text-gray-500">
+            <i className={`fas fa-sort-${sortState === 'asc' ? 'up' : 'down'}`}></i>
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1">
+        {onAggregate && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onAggregate(column.getColId());
+            }}
+            className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${isAggregated
+              ? 'bg-blue-500 text-white'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600'
+              }`}
+            title="Aggregate by this column"
+          >
+            Σ
+          </button>
+        )}
+        {enableMenu && (
+          <div
+            className="cursor-pointer px-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            onClick={(e) => {
+              e.stopPropagation();
+              showColumnMenu(e.target);
+            }}
+          >
+            <i className="fas fa-filter text-xs"></i>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function FilteredMHTable() {
   const [filters, setFilters] = useState<FilterState>({
     nameSurname: [],
@@ -108,6 +177,7 @@ export default function FilteredMHTable() {
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [aggregateByColumn, setAggregateByColumn] = useState<string | null>(null);
 
   const filterDebounceTimer = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef(true);
@@ -130,16 +200,16 @@ export default function FilteredMHTable() {
       isInitialMount.current = false;
       return;
     }
-    
+
     if (filterDebounceTimer.current) {
       clearTimeout(filterDebounceTimer.current);
     }
-    
+
     filterDebounceTimer.current = setTimeout(() => {
       fetchFilterOptions();
       fetchTableData();
     }, 300); // 300ms debounce
-    
+
     return () => {
       if (filterDebounceTimer.current) {
         clearTimeout(filterDebounceTimer.current);
@@ -214,59 +284,133 @@ export default function FilteredMHTable() {
   };
 
   // Transform data for AG Grid with flattened year-month columns
+  // When aggregateByColumn is set, group data by that column and sum values
   const gridRowData = useMemo(() => {
-    return tableData.map(row => {
-      const flatRow: any = {
-        nameSurname: row.nameSurname,
-        discipline: row.discipline,
-        company: row.company,
-        projectsGroup: row.projectsGroup,
-        totalMH: row.totalMH,
-      };
+    if (!aggregateByColumn) {
+      // Normal mode: show all rows
+      return tableData.map(row => {
+        const flatRow: any = {
+          nameSurname: row.nameSurname,
+          discipline: row.discipline,
+          company: row.company,
+          projectsGroup: row.projectsGroup,
+          totalMH: row.totalMH,
+        };
 
-      // Flatten monthly data into individual columns
-      Object.entries(row.monthlyMH).forEach(([dateKey, value]) => {
-        flatRow[dateKey] = value;
+        // Flatten monthly data into individual columns
+        Object.entries(row.monthlyMH).forEach(([dateKey, value]) => {
+          flatRow[dateKey] = value;
+        });
+
+        return flatRow;
       });
+    }
 
-      return flatRow;
+    // Aggregation mode: group by selected column and sum values
+    const aggregatedMap = new Map<string, any>();
+
+    tableData.forEach(row => {
+      const categoryValue = (row as any)[aggregateByColumn] || 'Unknown';
+
+      if (!aggregatedMap.has(categoryValue)) {
+        aggregatedMap.set(categoryValue, {
+          category: categoryValue,
+          nameSurname: aggregateByColumn === 'nameSurname' ? categoryValue : '',
+          discipline: aggregateByColumn === 'discipline' ? categoryValue : '',
+          company: aggregateByColumn === 'company' ? categoryValue : '',
+          projectsGroup: aggregateByColumn === 'projectsGroup' ? categoryValue : '',
+          totalMH: 0,
+          _count: 0,
+        });
+      }
+
+      const aggRow = aggregatedMap.get(categoryValue)!;
+      aggRow.totalMH += row.totalMH || 0;
+      aggRow._count += 1;
+
+      // Sum monthly data
+      Object.entries(row.monthlyMH).forEach(([dateKey, value]) => {
+        aggRow[dateKey] = (aggRow[dateKey] || 0) + (value || 0);
+      });
     });
-  }, [tableData]);
+
+    return Array.from(aggregatedMap.values()).sort((a, b) => b.totalMH - a.totalMH);
+  }, [tableData, aggregateByColumn]);
 
   // Create AG Grid column definitions with year groups and month sub-columns
   const columnDefs = useMemo<(ColDef | ColGroupDef)[]>(() => {
-    const fixedColumns: ColDef[] = [
-      {
-        headerName: 'Name',
-        field: 'nameSurname',
-        pinned: 'left',
-        width: 200,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-        cellStyle: { fontWeight: 500 },
-      },
-      {
-        headerName: 'Discipline',
-        field: 'discipline',
-        width: 150,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-      },
-      {
-        headerName: 'Company',
-        field: 'company',
-        width: 150,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-      },
-      {
-        headerName: 'Projects/Group',
-        field: 'projectsGroup',
-        width: 180,
-        filter: 'agTextColumnFilter',
-        sortable: true,
-      },
-    ];
+    // When aggregation is active, show a single Category column
+    const fixedColumns: ColDef[] = aggregateByColumn
+      ? [
+        {
+          headerName: `${FILTER_LABELS[aggregateByColumn]} (Grouped) Σ`,
+          field: 'category',
+          pinned: 'left',
+          width: 280,
+          filter: 'agTextColumnFilter',
+          sortable: true,
+          cellStyle: { fontWeight: 600 },
+        },
+        {
+          headerName: 'Count',
+          field: '_count',
+          width: 80,
+          type: 'numericColumn',
+          cellStyle: { textAlign: 'center', fontWeight: 500, color: '#6b7280' },
+        },
+      ]
+      : [
+        {
+          headerName: 'Name',
+          field: 'nameSurname',
+          pinned: 'left',
+          width: 200,
+          filter: 'agTextColumnFilter',
+          sortable: true,
+          cellStyle: { fontWeight: 500 },
+          headerComponent: CustomHeader,
+          headerComponentParams: {
+            onAggregate: (colId: string) => setAggregateByColumn(aggregateByColumn === colId ? null : colId),
+            isAggregated: aggregateByColumn === 'nameSurname',
+          },
+        },
+        {
+          headerName: 'Discipline',
+          field: 'discipline',
+          width: 150,
+          filter: 'agTextColumnFilter',
+          sortable: true,
+          headerComponent: CustomHeader,
+          headerComponentParams: {
+            onAggregate: (colId: string) => setAggregateByColumn(aggregateByColumn === colId ? null : colId),
+            isAggregated: aggregateByColumn === 'discipline',
+          },
+        },
+        {
+          headerName: 'Company',
+          field: 'company',
+          width: 150,
+          filter: 'agTextColumnFilter',
+          sortable: true,
+          headerComponent: CustomHeader,
+          headerComponentParams: {
+            onAggregate: (colId: string) => setAggregateByColumn(aggregateByColumn === colId ? null : colId),
+            isAggregated: aggregateByColumn === 'company',
+          },
+        },
+        {
+          headerName: 'Projects/Group',
+          field: 'projectsGroup',
+          width: 180,
+          filter: 'agTextColumnFilter',
+          sortable: true,
+          headerComponent: CustomHeader,
+          headerComponentParams: {
+            onAggregate: (colId: string) => setAggregateByColumn(aggregateByColumn === colId ? null : colId),
+            isAggregated: aggregateByColumn === 'projectsGroup',
+          },
+        },
+      ];
 
     // When "All Years" is selected, show all years with months
     if (!selectedYear) {
@@ -276,7 +420,7 @@ export default function FilteredMHTable() {
         children: MONTH_ABBR.map((monthName, idx) => {
           const monthKey = `${(idx + 1).toString().padStart(2, '0')}`;
           const fieldName = `${monthKey}`; // Backend might return as "01", "02", etc.
-          
+
           return {
             headerName: monthName,
             field: fieldName,
@@ -310,7 +454,7 @@ export default function FilteredMHTable() {
     // When specific year is selected, show months for that year only
     const monthColumns: ColDef[] = MONTH_ABBR.map((monthName, idx) => {
       const monthKey = (idx + 1).toString().padStart(2, '0');
-      
+
       return {
         headerName: monthName,
         field: monthKey,
@@ -338,7 +482,7 @@ export default function FilteredMHTable() {
         aggFunc: 'sum',
       },
     ];
-  }, [selectedYear]);
+  }, [selectedYear, aggregateByColumn]);
 
   // Default column definitions
   const defaultColDef = useMemo<ColDef>(() => ({
@@ -347,14 +491,14 @@ export default function FilteredMHTable() {
     filter: true,
   }), []);
 
-  const FilterSection = React.memo(({ 
-    title, 
-    filterKey, 
-    options 
-  }: { 
-    title: string; 
-    filterKey: keyof FilterState; 
-    options: FilterOption[] 
+  const FilterSection = React.memo(({
+    title,
+    filterKey,
+    options
+  }: {
+    title: string;
+    filterKey: keyof FilterState;
+    options: FilterOption[]
   }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -446,7 +590,7 @@ export default function FilteredMHTable() {
                   onClick={(e) => e.stopPropagation()}
                 />
               </div>
-              
+
               {/* Options List */}
               <div className="max-h-60 overflow-y-auto">
                 {filteredOptions.length > 0 ? (
@@ -500,7 +644,7 @@ export default function FilteredMHTable() {
                 <option key={year} value={year}>{year}</option>
               ))}
             </select>
-            
+
             {/* Month Selector */}
             <select
               value={selectedMonth}
@@ -525,12 +669,31 @@ export default function FilteredMHTable() {
           </div>
         </div>
 
+        {/* Aggregation Buttons Row */}
+        {aggregateByColumn && (
+          <div className="mt-3 flex items-center">
+            <button
+              onClick={() => setAggregateByColumn(null)}
+              className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+            >
+              <i className="fas fa-arrow-left"></i>
+              Back to Detail View
+            </button>
+            <span className="ml-3 text-sm text-gray-600 dark:text-gray-400">
+              Aggregated by: <span className="font-semibold text-gray-900 dark:text-gray-200">{FILTER_LABELS[aggregateByColumn]}</span>
+            </span>
+            <span className="ml-3 text-sm text-blue-600 dark:text-blue-400">
+              ({gridRowData.length} categories)
+            </span>
+          </div>
+        )}
+
         {/* Active Filters Display */}
         {Object.entries(filters).some(([, values]) => values.length > 0) && (
           <div className="mt-4 flex flex-wrap gap-2">
             {Object.entries(filters).map(([filterKey, values]) => {
               if (values.length === 0) return null;
-              
+
               return values.map((value: string) => (
                 <span
                   key={`${filterKey}-${value}`}
@@ -555,9 +718,8 @@ export default function FilteredMHTable() {
       <div className="flex">
         {/* Filters Sidebar */}
         <div
-          className={`transition-all duration-300 ${
-            filtersExpanded ? 'w-64' : 'w-12'
-          } border-r border-gray-200 dark:border-gray-800`}
+          className={`transition-all duration-300 ${filtersExpanded ? 'w-64' : 'w-12'
+            } border-r border-gray-200 dark:border-gray-800`}
         >
           <div className="sticky top-0">
             <button
@@ -566,7 +728,7 @@ export default function FilteredMHTable() {
               title={filtersExpanded ? 'Collapse filters' : 'Expand filters'}
             >
               <i className={`fas fa-${filtersExpanded ? 'angle-left' : 'angle-right'}`}></i>
-              {!filtersExpanded && <span className="ml-1 text-xs">...</span>}
+              <span className="ml-1 text-xs">...</span>
             </button>
 
             {filtersExpanded && (
@@ -575,90 +737,90 @@ export default function FilteredMHTable() {
                   Filters
                 </h4>
 
-                <FilterSection 
-                  title="Name Surname" 
-                  filterKey="nameSurname" 
-                  options={filterOptions.nameSurname || []} 
+                <FilterSection
+                  title="Name Surname"
+                  filterKey="nameSurname"
+                  options={filterOptions.nameSurname || []}
                 />
-                <FilterSection 
-                  title="Discipline" 
-                  filterKey="discipline" 
-                  options={filterOptions.discipline || []} 
+                <FilterSection
+                  title="Discipline"
+                  filterKey="discipline"
+                  options={filterOptions.discipline || []}
                 />
-                <FilterSection 
-                  title="Company" 
-                  filterKey="company" 
-                  options={filterOptions.company || []} 
+                <FilterSection
+                  title="Company"
+                  filterKey="company"
+                  options={filterOptions.company || []}
                 />
-                <FilterSection 
-                  title="Projects/Group" 
-                  filterKey="projectsGroup" 
-                  options={filterOptions.projectsGroup || []} 
+                <FilterSection
+                  title="Projects/Group"
+                  filterKey="projectsGroup"
+                  options={filterOptions.projectsGroup || []}
                 />
-                <FilterSection 
-                  title="Scope" 
-                  filterKey="scope" 
-                  options={filterOptions.scope || []} 
+                <FilterSection
+                  title="Scope"
+                  filterKey="scope"
+                  options={filterOptions.scope || []}
                 />
-                <FilterSection 
-                  title="Projects" 
-                  filterKey="projects" 
-                  options={filterOptions.projects || []} 
+                <FilterSection
+                  title="Projects"
+                  filterKey="projects"
+                  options={filterOptions.projects || []}
                 />
-                <FilterSection 
-                  title="Nationality" 
-                  filterKey="nationality" 
-                  options={filterOptions.nationality || []} 
+                <FilterSection
+                  title="Nationality"
+                  filterKey="nationality"
+                  options={filterOptions.nationality || []}
                 />
-                <FilterSection 
-                  title="Status" 
-                  filterKey="status" 
-                  options={filterOptions.status || []} 
+                <FilterSection
+                  title="Status"
+                  filterKey="status"
+                  options={filterOptions.status || []}
                 />
-                <FilterSection 
-                  title="North/South" 
-                  filterKey="northSouth" 
-                  options={filterOptions.northSouth || []} 
+                <FilterSection
+                  title="North/South"
+                  filterKey="northSouth"
+                  options={filterOptions.northSouth || []}
                 />
-                <FilterSection 
-                  title="Control-1" 
-                  filterKey="control1" 
-                  options={filterOptions.control1 || []} 
+                <FilterSection
+                  title="Control-1"
+                  filterKey="control1"
+                  options={filterOptions.control1 || []}
                 />
-                <FilterSection 
-                  title="NO-1" 
-                  filterKey="no1" 
-                  options={filterOptions.no1 || []} 
+                <FilterSection
+                  title="NO-1"
+                  filterKey="no1"
+                  options={filterOptions.no1 || []}
                 />
-                <FilterSection 
-                  title="NO-2" 
-                  filterKey="no2" 
-                  options={filterOptions.no2 || []} 
+                <FilterSection
+                  title="NO-2"
+                  filterKey="no2"
+                  options={filterOptions.no2 || []}
                 />
-                <FilterSection 
-                  title="NO-3" 
-                  filterKey="no3" 
-                  options={filterOptions.no3 || []} 
+                <FilterSection
+                  title="NO-3"
+                  filterKey="no3"
+                  options={filterOptions.no3 || []}
                 />
-                <FilterSection 
-                  title="NO-10" 
-                  filterKey="no10" 
-                  options={filterOptions.no10 || []} 
+                <FilterSection
+                  title="NO-10"
+                  filterKey="no10"
+                  options={filterOptions.no10 || []}
                 />
-                <FilterSection 
-                  title="Kontrol-1" 
-                  filterKey="kontrol1" 
-                  options={filterOptions.kontrol1 || []} 
+                <FilterSection
+                  title="Kontrol-1"
+                  filterKey="kontrol1"
+                  options={filterOptions.kontrol1 || []}
                 />
-                <FilterSection 
-                  title="Kontrol-2" 
-                  filterKey="kontrol2" 
-                  options={filterOptions.kontrol2 || []} 
+                <FilterSection
+                  title="Kontrol-2"
+                  filterKey="kontrol2"
+                  options={filterOptions.kontrol2 || []}
                 />
-                <FilterSection 
-                  title="LS/Unit Rate" 
-                  filterKey="lsUnitRate" 
-                  options={filterOptions.lsUnitRate || []} 
+                <FilterSection
+                  title="LS/Unit Rate"
+                  filterKey="lsUnitRate"
+                  options={filterOptions.lsUnitRate || []}
                 />
               </div>
             )}
@@ -692,6 +854,6 @@ export default function FilteredMHTable() {
           )}
         </div>
       </div>
-    </div>
+    </div >
   );
 }

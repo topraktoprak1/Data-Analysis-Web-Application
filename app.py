@@ -1019,29 +1019,40 @@ def load_excel_data(file_path, user_filter=None):
     """Load Excel file and return DataFrame from DATABASE sheet with optional user filtering"""
     file_name = os.path.basename(file_path).lower()
     
-    # Read Excel without auto-parsing dates
+    # Read Excel without auto-parsing dates and read ALL columns as strings to avoid boolean conversion issues
+    # This fixes "Invalid value 'TRUE' for dtype 'bool'" errors with Turkish Excel files
     if file_name.endswith('.xlsb'):
         try:
             # First, read to get column names
             df_temp = pd.read_excel(file_path, sheet_name='DATABASE', engine='pyxlsb', nrows=1)
-            date_columns = [col for col in df_temp.columns if any(kw in str(col).lower() for kw in ['week', 'month', 'date', 'tarih'])]
             
-            # Now read the full file, keeping date columns as object type (strings)
-            dtype_dict = {col: object for col in date_columns}
+            # Read ALL columns as object (string) to avoid boolean/type conversion issues
+            # This handles Turkish TRUE/FALSE (DOĞRU/YANLIŞ) and other locale-specific values
+            dtype_dict = {col: object for col in df_temp.columns}
             df = pd.read_excel(file_path, sheet_name='DATABASE', engine='pyxlsb', dtype=dtype_dict, date_format=None)
-        except:
-            df = pd.read_excel(file_path, engine='pyxlsb')
+        except Exception as e:
+            print(f"Error reading xlsb with dtype override, trying fallback: {e}")
+            try:
+                # Fallback: read all as string
+                df = pd.read_excel(file_path, engine='pyxlsb', dtype=str)
+            except:
+                df = pd.read_excel(file_path, engine='pyxlsb')
     else:
         try:
             # First, read to get column names
             df_temp = pd.read_excel(file_path, sheet_name='DATABASE', nrows=1)
-            date_columns = [col for col in df_temp.columns if any(kw in str(col).lower() for kw in ['week', 'month', 'date', 'tarih'])]
             
-            # Now read the full file, keeping date columns as object type (strings)
-            dtype_dict = {col: object for col in date_columns}
+            # Read ALL columns as object (string) to avoid boolean/type conversion issues
+            # This handles Turkish TRUE/FALSE (DOĞRU/YANLIŞ) and other locale-specific values
+            dtype_dict = {col: object for col in df_temp.columns}
             df = pd.read_excel(file_path, sheet_name='DATABASE', dtype=dtype_dict, date_format=None)
-        except:
-            df = pd.read_excel(file_path)
+        except Exception as e:
+            print(f"Error reading xlsx with dtype override, trying fallback: {e}")
+            try:
+                # Fallback: read all as string
+                df = pd.read_excel(file_path, dtype=str)
+            except:
+                df = pd.read_excel(file_path)
     
     print(f"Loaded Excel with {len(df)} rows and {len(df.columns)} columns")
     
